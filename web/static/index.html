@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brain · Research Engine</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand"><span class="dot"></span><h1>BRAIN</h1><span class="tag" id="srcTag">—</span></div>
+    <div class="headval">
+      <div class="big" id="totVal">—</div>
+      <div class="chg muted" id="totMeta">—</div>
+    </div>
+  </header>
+
+  <nav>
+    <button class="tab active" data-tab="brain">Brain</button>
+    <button class="tab" data-tab="portfolio">Portfolio</button>
+    <button class="tab" data-tab="discover">Discover</button>
+    <button class="tab" data-tab="digest">Digest</button>
+    <button class="tab" data-tab="shadow">Shadow</button>
+    <button class="tab" data-tab="profile">Profile</button>
+  </nav>
+
+  <main>
+    <!-- BRAIN: findings feed + agentic chat -->
+    <section id="brain" class="panel active">
+      <div class="row between">
+        <h2>What the brain found</h2>
+        <button class="ghost" id="refreshFeed">↻ Rescan</button>
+      </div>
+      <p class="sub">The brain proactively watches your book and the market. Ask it anything below — it researches live.</p>
+      <div class="feed" id="feed"><div class="loading"><span class="spin"></span> Scanning your portfolio and the market…</div></div>
+
+      <h3>Ask the brain</h3>
+      <div class="chatlog" id="chatLog"></div>
+      <div class="composer">
+        <input id="chatInput" placeholder="e.g. is my RKLB position too big? find me a stable dividend idea." />
+        <button class="primary" id="sendChat">Ask</button>
+      </div>
+    </section>
+
+    <!-- PORTFOLIO -->
+    <section id="portfolio" class="panel">
+      <div class="row between"><h2>Holdings</h2><span class="muted" id="holdNote"></span></div>
+      <div class="holdlist" id="holdRows"></div>
+      <div class="editor hidden" id="editor">
+        <h3 style="margin-top:0">Edit holdings</h3>
+        <div id="editRows"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="ghost" id="addRow">+ add</button>
+          <label class="cashlbl">Cash $ <input id="cashInput" type="number" value="0" /></label>
+          <button class="primary" id="saveHold">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- DISCOVER -->
+    <section id="discover" class="panel">
+      <div class="row between">
+        <h2>Discover ideas</h2>
+        <div class="row">
+          <select id="flavor">
+            <option value="any">Best overall</option>
+            <option value="stable">Stable</option>
+            <option value="volatile">More volatile</option>
+          </select>
+          <button class="primary" id="runDiscover">Find</button>
+        </div>
+      </div>
+      <p class="sub">A screen across 500+ stocks finds candidates outside your holdings; the brain writes the thesis.</p>
+      <div id="ideas" class="cards"></div>
+    </section>
+
+    <!-- DIGEST -->
+    <section id="digest" class="panel">
+      <div class="row between"><h2>Portfolio guardian</h2><button class="primary" id="runDigest">Run digest</button></div>
+      <div id="digestSummary"></div>
+      <div id="digestInsights" class="cards"></div>
+    </section>
+
+    <!-- SHADOW -->
+    <section id="shadow" class="panel">
+      <div class="row between"><h2>Shadow track record</h2><button class="primary" id="runScore">Refresh</button></div>
+      <p class="sub">Every recommendation is logged as a paper trade — the honest scorecard before you trust it with money.</p>
+      <div class="statline" id="scoreStats"></div>
+      <table class="grid"><thead><tr>
+        <th>When</th><th>Ticker</th><th>Action</th><th>Conv</th><th>Entry</th><th>Now</th><th>Return</th><th>Source</th>
+      </tr></thead><tbody id="scoreRows"></tbody></table>
+    </section>
+
+    <!-- PROFILE -->
+    <section id="profile" class="panel">
+      <div class="row between"><h2>Investor profile</h2><button class="ghost" id="learnBtn">↻ Learn from my holdings</button></div>
+      <p class="sub">The lens every recommendation passes through. It evolves from what you accept/reject and what you actually hold.</p>
+      <div id="learned"></div>
+      <div class="form" id="profileForm"></div>
+      <button class="primary" id="saveProfile">Save profile</button>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
+  <div id="toast" class="toast hidden"></div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
