@@ -10,11 +10,11 @@ The screen finds them; the model explains and personalizes them.
 """
 from __future__ import annotations
 
-from ..data.prices import ScreenRow, get_signals
+from ..data.prices import ScreenRow, get_signals_many
 from ..data.universe import screening_universe
 from ..models import DiscoveryResult, RiskProfile
 from ..data import prices
-from .. import llm
+from .. import llm, research_state
 
 
 def _screen_score(r: ScreenRow) -> float:
@@ -51,8 +51,9 @@ def discover(profile: RiskProfile, flavor: str = "any", top_n: int = 5,
         return DiscoveryResult(ideas=[])
 
     # Enrich the shortlist with full fundamentals (sector, beta, P/E, div).
-    enriched = [get_signals(r.ticker) for r in shortlist]
-    rows_txt = "\n".join(f"- {s.as_prompt()}" for s in enriched if s.price > 0)
+    enriched_map = get_signals_many([r.ticker for r in shortlist])
+    enriched = [enriched_map.get(r.ticker) for r in shortlist]
+    rows_txt = "\n".join(f"- {s.as_prompt()}" for s in enriched if s and s.price > 0)
 
     prompt = f"""From the screened candidates below, pick the {top_n} most compelling ideas for this investor.
 
@@ -71,4 +72,5 @@ Return at most {top_n}."""
 
     result = llm.parse(prompt, DiscoveryResult, max_tokens=3000)
     result.ideas = result.ideas[:top_n]
+    research_state.add_discovery_ideas(result.ideas)
     return result

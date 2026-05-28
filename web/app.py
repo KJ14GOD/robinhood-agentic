@@ -5,6 +5,8 @@ Then open http://127.0.0.1:8000
 """
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import json
@@ -48,17 +50,29 @@ class HoldingsBody(BaseModel):
     cash: float = 0.0
 
 
+class BriefingBody(BaseModel):
+    kind: str = "manual"
+
+
 # ----- API ----- #
-@app.get("/api/state")
-def state():
-    pf = brain.portfolio()
+def _state(pf=None):
+    pf = pf or brain.portfolio()
     weights = pf.weights()
     return {
-        "source": config.PORTFOLIO_SOURCE,
+        "source": pf.source or config.PORTFOLIO_SOURCE,
+        "as_of": pf.as_of,
+        "sync_ok": pf.sync_ok,
+        "sync_message": pf.sync_message,
         "profile": brain.get_profile().model_dump(),
+        "research": brain.get_research_state().model_dump(),
         "portfolio": {
             "total_value": pf.total_value,
             "cash": pf.cash,
+            "buying_power": pf.buying_power,
+            "reported_equity": pf.reported_equity,
+            "pricing_source": pf.pricing_source,
+            "pricing_warning": pf.pricing_warning,
+            "as_of": pf.as_of,
             "holdings": [
                 {**h.model_dump(), "market_value": h.market_value,
                  "weight": weights.get(h.ticker, 0.0),
@@ -67,6 +81,17 @@ def state():
             ],
         },
     }
+
+
+@app.get("/api/state")
+def state():
+    return _state()
+
+
+@app.post("/api/refresh")
+def refresh():
+    pf = brain.refresh_live_state()
+    return _state(pf)
 
 
 @app.post("/api/profile")
@@ -79,7 +104,7 @@ def save_holdings(body: HoldingsBody):
     if config.PORTFOLIO_SOURCE != "manual":
         return {"error": "Holdings are read from Robinhood; switch PORTFOLIO_SOURCE=manual to edit here."}
     manual_pf.save_portfolio(body.holdings, body.cash)
-    return state()
+    return refresh()
 
 
 @app.post("/api/chat")
@@ -123,6 +148,11 @@ def feed():
     return brain.feed().model_dump()
 
 
+@app.post("/api/briefing")
+def briefing(body: BriefingBody):
+    return brain.create_briefing(body.kind).model_dump()
+
+
 @app.get("/api/scoreboard")
 def scoreboard():
     return brain.scoreboard()
@@ -137,6 +167,54 @@ def feedback(body: FeedbackBody):
 def learn():
     """Re-read the real portfolio into the learned investor signature."""
     return brain.refresh_learning().model_dump()
+
+
+async def _refresh_loop() -> None:
+    """Keep broker/price/shadow data warm without spending LLM tokens."""
+    while True:
+        await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
+        try:
+            await asyncio.to_thread(brain.refresh_live_state)
+            await asyncio.to_thread(brain.scoreboard, True)
+        except Exception:
+            pass
+
+
+def _briefing_exists_today(kind: str) -> bool:
+    today = datetime.now().date()
+    state = brain.get_research_state()
+    for b in state.briefings:
+        if b.kind != kind:
+            continue
+        try:
+            created = datetime.fromisoformat(b.created_at).astimezone().date()
+        except ValueError:
+            created = None
+        if created == today:
+            return True
+    return False
+
+
+async def _briefing_loop() -> None:
+    """Create one morning/evening briefing per day while the app is running."""
+    while True:
+        await asyncio.sleep(60)
+        now = datetime.now().strftime("%H:%M")
+        try:
+            if now >= config.MORNING_BRIEF_TIME and not _briefing_exists_today("morning"):
+                await asyncio.to_thread(brain.create_briefing, "morning")
+            if now >= config.EVENING_BRIEF_TIME and not _briefing_exists_today("evening"):
+                await asyncio.to_thread(brain.create_briefing, "evening")
+        except Exception:
+            pass
+
+
+@app.on_event("startup")
+async def start_background_refresh() -> None:
+    if config.AUTO_REFRESH_SECONDS > 0:
+        asyncio.create_task(_refresh_loop())
+    if config.AUTO_BRIEFINGS:
+        asyncio.create_task(_briefing_loop())
 
 
 # ----- static dashboard ----- #

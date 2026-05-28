@@ -8,7 +8,7 @@ from __future__ import annotations
 from ..data.news import headlines_as_prompt
 from ..data.prices import get_signals
 from ..models import RiskProfile, TradeTicket
-from .. import llm, shadow
+from .. import llm, research_state, shadow
 
 
 def analyze(ticker: str, profile: RiskProfile, log_shadow: bool = True) -> TradeTicket:
@@ -35,4 +35,5 @@ on why it fits (or how to size it to fit) their personality. Be honest about con
     ticket.ticker = ticker
     if log_shadow:
         shadow.log_recommendation(ticket, source="analyst")
+    research_state.update_from_ticket(ticket)
     return ticket

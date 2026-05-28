@@ -11,6 +11,8 @@ from urllib.parse import quote_plus
 
 import feedparser
 
+from .. import config
+
 
 @dataclass
 class Headline:
@@ -29,8 +31,22 @@ def _google_feed(query: str) -> str:
     return f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
 
-def get_news(ticker: str, limit: int = 6) -> list[Headline]:
+_NEWS_CACHE: dict[str, tuple[float, list[Headline]]] = {}
+
+
+def clear_news_cache(tickers: list[str] | None = None) -> None:
+    if tickers is None:
+        _NEWS_CACHE.clear()
+        return
+    for t in tickers:
+        _NEWS_CACHE.pop(t.upper().strip(), None)
+
+
+def get_news(ticker: str, limit: int = 6, refresh: bool = False) -> list[Headline]:
     ticker = ticker.upper().strip()
+    hit = _NEWS_CACHE.get(ticker)
+    if hit and not refresh and time.time() - hit[0] < config.NEWS_TTL_SECONDS:
+        return hit[1][:limit]
     out: list[Headline] = []
     for url in (_yahoo_feed(ticker), _google_feed(ticker)):
         try:
@@ -51,11 +67,12 @@ def get_news(ticker: str, limit: int = 6) -> list[Headline]:
         except Exception:  # noqa: BLE001
             continue
         time.sleep(0.1)
+    _NEWS_CACHE[ticker] = (time.time(), out)
     return out[:limit]
 
 
-def headlines_as_prompt(ticker: str, limit: int = 6) -> str:
-    hs = get_news(ticker, limit)
+def headlines_as_prompt(ticker: str, limit: int = 6, refresh: bool = False) -> str:
+    hs = get_news(ticker, limit, refresh=refresh)
     if not hs:
         return f"{ticker}: no recent headlines found."
     lines = [f"Recent {ticker} headlines:"]

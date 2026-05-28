@@ -6,30 +6,34 @@ from __future__ import annotations
 import json
 
 from .. import config
-from ..data.prices import get_quote
+from ..data.prices import clean_ticker, get_quotes
 from ..models import Holding, Portfolio
 
 
-def load_portfolio() -> Portfolio:
+def load_portfolio(refresh: bool = False) -> Portfolio:
     if not config.HOLDINGS_CACHE.exists():
-        return Portfolio()
+        return Portfolio(source="manual", sync_message="No manual holdings entered yet.")
     raw = json.loads(config.HOLDINGS_CACHE.read_text())
     holdings = []
+    symbols = [clean_ticker(h["ticker"]) for h in raw.get("holdings", [])]
+    quotes = get_quotes(symbols, refresh=refresh)
     for h in raw.get("holdings", []):
-        q = get_quote(h["ticker"])
+        ticker = clean_ticker(h["ticker"])
+        q = quotes.get(ticker)
         holdings.append(
             Holding(
-                ticker=h["ticker"].upper(),
+                ticker=ticker,
                 quantity=float(h.get("quantity", 0)),
                 avg_cost=float(h.get("avg_cost", 0)),
-                current_price=q.price,
+                current_price=q.price if q else 0.0,
             )
         )
-    return Portfolio(holdings=holdings, cash=float(raw.get("cash", 0)))
+    cash = float(raw.get("cash", 0))
+    return Portfolio(holdings=holdings, cash=cash, buying_power=cash, source="manual")
 
 
 def save_portfolio(holdings: list[dict], cash: float = 0.0) -> Portfolio:
     config.HOLDINGS_CACHE.write_text(
         json.dumps({"holdings": holdings, "cash": cash}, indent=2)
     )
-    return load_portfolio()
+    return load_portfolio(refresh=True)

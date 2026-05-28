@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 def _now() -> str:
@@ -118,10 +118,19 @@ class Holding(BaseModel):
 class Portfolio(BaseModel):
     holdings: list[Holding] = Field(default_factory=list)
     cash: float = 0.0
+    buying_power: float = 0.0
+    reported_equity: float = 0.0
+    pricing_source: str = ""
+    pricing_warning: str = ""
+    source: str = ""
+    sync_ok: bool = True
+    sync_message: str = ""
     as_of: str = Field(default_factory=_now)
 
     @property
     def total_value(self) -> float:
+        if self.reported_equity > 0:
+            return self.reported_equity
         return self.cash + sum(h.market_value for h in self.holdings)
 
     def weights(self) -> dict[str, float]:
@@ -135,6 +144,16 @@ class Portfolio(BaseModel):
 # Recommendations & discovery (LLM structured outputs)
 # --------------------------------------------------------------------------- #
 Action = Literal["buy", "sell", "trim", "add", "hold", "watch"]
+DecisionLabel = Literal[
+    "BUY CANDIDATE",
+    "WATCHLIST",
+    "WAIT FOR PULLBACK",
+    "HOLD",
+    "TRIM",
+    "EXIT REVIEW",
+    "REJECT",
+    "DO NOTHING",
+]
 
 
 class TradeTicket(BaseModel):
@@ -152,6 +171,18 @@ class TradeTicket(BaseModel):
     fits_profile_because: str = Field(
         default="", description="How this matches the user's risk personality."
     )
+
+    @computed_field
+    @property
+    def decision_label(self) -> DecisionLabel:
+        return {
+            "buy": "BUY CANDIDATE",
+            "add": "BUY CANDIDATE",
+            "watch": "WATCHLIST",
+            "hold": "HOLD",
+            "trim": "TRIM",
+            "sell": "EXIT REVIEW",
+        }.get(self.action, "DO NOTHING")  # type: ignore[return-value]
 
 
 class StockIdea(BaseModel):
@@ -193,6 +224,80 @@ class Finding(BaseModel):
 
 class FindingsFeed(BaseModel):
     findings: list[Finding]
+
+
+class ChartPoint(BaseModel):
+    at: str
+    close: float
+
+
+class StockChart(BaseModel):
+    ticker: str
+    span: Literal["1d", "1m", "3m", "6m", "1y"] = "3m"
+    points: list[ChartPoint] = Field(default_factory=list)
+    latest: float = 0.0
+    return_pct: float = 0.0
+    source: str = "yfinance"
+
+    def summary(self) -> str:
+        if not self.points:
+            return f"{self.ticker}: no chart data found."
+        return (
+            f"{self.ticker} {self.span} chart: latest ${self.latest:.2f}, "
+            f"return {self.return_pct:+.1f}% across {len(self.points)} points."
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Persistent research memory
+# --------------------------------------------------------------------------- #
+class Thesis(BaseModel):
+    ticker: str
+    thesis: str = ""
+    status: Literal["active", "review", "broken", "archived"] = "active"
+    strengthens: list[str] = Field(default_factory=list)
+    weakens: list[str] = Field(default_factory=list)
+    invalidation: str = ""
+    last_decision: DecisionLabel = "WATCHLIST"
+    updated_at: str = Field(default_factory=_now)
+
+
+class WatchItem(BaseModel):
+    ticker: str
+    reason: str = ""
+    mode: Literal["stable", "balanced", "volatile"] = "balanced"
+    target_entry: float = 0.0
+    max_allocation_pct: float = 0.0
+    added_at: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
+
+
+class PriceAlert(BaseModel):
+    ticker: str
+    kind: Literal["below", "above", "review"] = "review"
+    threshold: float = 0.0
+    note: str = ""
+    active: bool = True
+    triggered_at: str = ""
+    created_at: str = Field(default_factory=_now)
+
+
+class Briefing(BaseModel):
+    id: str
+    kind: Literal["morning", "evening", "manual"] = "manual"
+    title: str
+    summary: str
+    bullets: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=_now)
+
+
+class ResearchState(BaseModel):
+    watchlist: list[WatchItem] = Field(default_factory=list)
+    theses: dict[str, Thesis] = Field(default_factory=dict)
+    alerts: list[PriceAlert] = Field(default_factory=list)
+    briefings: list[Briefing] = Field(default_factory=list)
+    updated_at: str = Field(default_factory=_now)
 
 
 # --------------------------------------------------------------------------- #

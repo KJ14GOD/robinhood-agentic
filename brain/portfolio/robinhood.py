@@ -8,9 +8,11 @@ If you'd rather not, set PORTFOLIO_SOURCE=manual.
 from __future__ import annotations
 
 import robin_stocks.robinhood as rh
+from robin_stocks.robinhood.helper import request_get
+from robin_stocks.robinhood.urls import historicals_url
 
 from .. import config
-from ..data.prices import clean_ticker, get_quote
+from ..data.prices import clean_ticker, get_quotes
 from ..models import Holding, Portfolio
 
 _logged_in = False
@@ -33,31 +35,112 @@ def _login() -> None:
     _logged_in = True
 
 
-def fetch_portfolio() -> Portfolio:
+def _as_float(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _reported_equity(profile: dict) -> float:
+    """Match Robinhood's displayed account value before reconstructing locally."""
+    for key in (
+        "extended_hours_equity",
+        "extended_hours_portfolio_equity",
+        "equity",
+        "portfolio_equity",
+        "market_value",
+    ):
+        value = _as_float(profile.get(key))
+        if value > 0:
+            return value
+    return 0.0
+
+
+def _historical_24h_prices(symbols: list[str]) -> dict[str, float]:
+    """Best available unofficial approximation of Robinhood's 24-hour chart feed.
+
+    Robinhood's web UI may use a newer ATS overnight feed that is not exposed by
+    robin_stocks quote/profile helpers. The 24_7 historicals endpoint is closer
+    than regular quotes when it returns data, but it can still lag the web UI.
+    """
+    if not symbols:
+        return {}
+    data = request_get(
+        historicals_url(),
+        "results",
+        {
+            "symbols": ",".join(symbols),
+            "interval": "5minute",
+            "span": "day",
+            "bounds": "24_7",
+        },
+    )
+    out: dict[str, float] = {}
+    for item in data or []:
+        symbol = item.get("symbol")
+        points = item.get("historicals") or []
+        if not symbol or not points:
+            continue
+        price = _as_float(points[-1].get("close_price"))
+        if price > 0:
+            out[clean_ticker(symbol)] = price
+    return out
+
+
+def fetch_portfolio(refresh: bool = False) -> Portfolio:
     """Read holdings + buying power. Read-only — no orders, ever."""
     _login()
+    account_profile = {}
+    portfolio_profile = {}
+    try:
+        account_profile = rh.profiles.load_account_profile() or {}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        portfolio_profile = rh.profiles.load_portfolio_profile() or {}
+    except Exception:  # noqa: BLE001
+        pass
+
     positions = rh.account.build_holdings()  # {ticker: {quantity, average_buy_price, ...}}
+    symbols = [
+        clean_ticker(ticker)
+        for ticker, data in positions.items()
+        if float(data.get("quantity", 0) or 0) > 0
+    ]
+    quotes = get_quotes(symbols, refresh=refresh)
+    historical_24h = _historical_24h_prices(symbols)
     holdings = []
     for ticker, data in positions.items():
         qty = float(data.get("quantity", 0) or 0)
         if qty <= 0:
             continue
         sym = clean_ticker(ticker)
-        q = get_quote(sym)
-        # fall back to RH's own price when yfinance can't quote the symbol
-        rh_price = float(data.get("price", 0) or 0)
+        q = quotes.get(sym)
+        # Robinhood should be the source of truth for the Robinhood dashboard.
+        # yfinance is only a fallback when RH cannot quote a symbol.
+        rh_price = _as_float(data.get("price"))
+        chart_price = historical_24h.get(sym, 0.0)
         holdings.append(
             Holding(
                 ticker=sym,
                 quantity=qty,
-                avg_cost=float(data.get("average_buy_price", 0) or 0),
-                current_price=q.price or rh_price,
+                avg_cost=_as_float(data.get("average_buy_price")),
+                current_price=chart_price or rh_price or (q.price if q else 0.0),
             )
         )
-    cash = 0.0
-    try:
-        profile = rh.profiles.load_account_profile()
-        cash = float(profile.get("buying_power", 0) or 0)
-    except Exception:  # noqa: BLE001
-        pass
-    return Portfolio(holdings=holdings, cash=cash)
+    cash = _as_float(account_profile.get("portfolio_cash")) or _as_float(account_profile.get("cash"))
+    buying_power = _as_float(account_profile.get("buying_power"))
+    reported = _reported_equity(portfolio_profile) or sum(h.market_value for h in holdings) + cash
+    return Portfolio(
+        holdings=holdings,
+        cash=cash,
+        buying_power=buying_power,
+        reported_equity=reported,
+        pricing_source="Robinhood API 24_7 historicals / portfolio profile",
+        pricing_warning=(
+            "Robinhood web may show a different overnight value because its "
+            "24 Hour Market ATS feed is not fully exposed by robin_stocks."
+        ),
+        source="robinhood",
+    )

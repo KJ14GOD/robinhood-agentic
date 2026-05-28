@@ -13,6 +13,7 @@
     <div class="headval">
       <div class="big" id="totVal">—</div>
       <div class="chg muted" id="totMeta">—</div>
+      <button class="ghost mini" id="refreshAll">Refresh</button>
     </div>
   </header>
 
@@ -26,20 +27,46 @@
   </nav>
 
   <main>
-    <!-- BRAIN: findings feed + agentic chat -->
+    <!-- BRAIN: daily workspace + agentic chat -->
     <section id="brain" class="panel active">
-      <div class="row between">
-        <h2>What the brain found</h2>
-        <button class="ghost" id="refreshFeed">↻ Rescan</button>
-      </div>
-      <p class="sub">The brain proactively watches your book and the market. Ask it anything below — it researches live.</p>
-      <div class="feed" id="feed"><div class="loading"><span class="spin"></span> Scanning your portfolio and the market…</div></div>
+      <div class="brain-shell">
+        <div class="workspace">
+          <div class="today-head">
+            <div>
+              <h2>Today</h2>
+              <p class="sub" id="todayLine">Loading portfolio state...</p>
+            </div>
+            <button class="ghost" id="refreshFeed">Rescan</button>
+          </div>
+          <div class="signal-strip" id="todayMetrics"></div>
+          <div class="feed" id="feed"><div class="loading"><span class="spin"></span> Scanning your portfolio and the market...</div></div>
 
-      <h3>Ask the brain</h3>
-      <div class="chatlog" id="chatLog"></div>
-      <div class="composer">
-        <input id="chatInput" placeholder="e.g. is my RKLB position too big? find me a stable dividend idea." />
-        <button class="primary" id="sendChat">Ask</button>
+          <div class="section-head">
+            <h3>Research memory</h3>
+          </div>
+          <div id="watchlist" class="cards compact"></div>
+
+          <div class="section-head">
+            <h3>Briefing inbox</h3>
+            <div class="row">
+              <button class="ghost" id="morningBrief">Morning</button>
+              <button class="ghost" id="eveningBrief">Evening</button>
+            </div>
+          </div>
+          <div id="briefings" class="cards"></div>
+        </div>
+
+        <aside class="assistant-pane">
+          <div class="row between">
+            <h2>Assistant</h2>
+            <span class="status-dot" id="assistantStatus">Ready</span>
+          </div>
+          <div class="chatlog" id="chatLog"></div>
+          <div class="composer">
+            <input id="chatInput" placeholder="Ask about risk, entries, charts, or a new idea" />
+            <button class="primary" id="sendChat">Ask</button>
+          </div>
+        </aside>
       </div>
     </section>
 

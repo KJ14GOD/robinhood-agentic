@@ -4,7 +4,9 @@
   python cli.py analyze NVDA
   python cli.py discover --flavor stable
   python cli.py digest
+  python cli.py briefing --kind morning
   python cli.py score
+  python cli.py refresh
   python cli.py ask "give me 3 stable dividend ideas"
 """
 from __future__ import annotations
@@ -24,8 +26,12 @@ def main() -> None:
                                                    choices=["any", "stable", "volatile"])
     d.add_argument("--n", type=int, default=5)
     sub.add_parser("digest")
+    b = sub.add_parser("briefing"); b.add_argument("--kind", default="manual",
+                                                   choices=["morning", "evening", "manual"])
     sub.add_parser("score")
+    sub.add_parser("refresh")
     sub.add_parser("portfolio")
+    sub.add_parser("memory")
     k = sub.add_parser("ask"); k.add_argument("message")
 
     args = ap.parse_args()
@@ -35,10 +41,16 @@ def main() -> None:
         print(brain.discover(flavor=args.flavor, top_n=args.n).model_dump_json(indent=2))
     elif args.cmd == "digest":
         print(brain.daily_digest().model_dump_json(indent=2))
+    elif args.cmd == "briefing":
+        print(brain.create_briefing(args.kind).model_dump_json(indent=2))
     elif args.cmd == "score":
         print(json.dumps(brain.scoreboard(), indent=2, default=str))
+    elif args.cmd == "refresh":
+        print(brain.refresh_live_state().model_dump_json(indent=2))
     elif args.cmd == "portfolio":
         print(brain.portfolio().model_dump_json(indent=2))
+    elif args.cmd == "memory":
+        print(brain.get_research_state().model_dump_json(indent=2))
     elif args.cmd == "ask":
         for ev in brain.chat_stream(args.message):
             t = ev["type"]

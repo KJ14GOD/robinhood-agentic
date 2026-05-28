@@ -8,10 +8,10 @@ news, then distilled into a typed feed by one structured LLM call.
 from __future__ import annotations
 
 from ..data.news import get_news
-from ..data.prices import get_signals, screen_universe
+from ..data.prices import get_signals_many, screen_universe
 from ..data.universe import screening_universe
 from ..models import FindingsFeed, Portfolio, RiskProfile
-from .. import llm
+from .. import llm, research_state
 from ..engines.discovery import _screen_score
 
 
@@ -22,13 +22,18 @@ def scan(pf: Portfolio, profile: RiskProfile, max_findings: int = 6) -> Findings
     # --- grounded inputs ---------------------------------------------------- #
     holding_lines = []
     conc_lines = []
+    memory = research_state.load_state()
+    signals = get_signals_many([h.ticker for h in pf.holdings])
     for h in sorted(pf.holdings, key=lambda x: x.market_value, reverse=True):
-        sig = get_signals(h.ticker)
+        sig = signals.get(h.ticker)
         w = weights.get(h.ticker, 0)
         upnl = h.unrealized_pct
+        sig_line = sig.as_prompt() if sig else "no signal data"
+        thesis = memory.theses.get(h.ticker)
+        thesis_line = f" Stored thesis: {thesis.thesis} Invalidation: {thesis.invalidation}" if thesis else ""
         holding_lines.append(
-            f"{h.ticker}: {w:.0f}% weight, unrealized {upnl:+.0f}%. {sig.as_prompt()}"
-            if upnl is not None else f"{h.ticker}: {w:.0f}% weight. {sig.as_prompt()}"
+            f"{h.ticker}: {w:.0f}% weight, unrealized {upnl:+.0f}%. {sig_line}{thesis_line}"
+            if upnl is not None else f"{h.ticker}: {w:.0f}% weight. {sig_line}{thesis_line}"
         )
         if w > profile.max_single_position_pct:
             conc_lines.append(f"{h.ticker} is {w:.0f}% of the book (over the {profile.max_single_position_pct:.0f}% comfort line).")
@@ -45,6 +50,11 @@ def scan(pf: Portfolio, profile: RiskProfile, max_findings: int = 6) -> Findings
     opp_lines = [
         f"{r.ticker}: ${r.price:.0f}, 3m {r.ret_3m_pct:+.0f}%/6m {r.ret_6m_pct:+.0f}%, RSI {r.rsi_14:.0f}"
         for r in market[:4]
+    ]
+    watch_lines = [
+        f"{item.ticker} ({item.mode}): {item.reason}"
+        for item in memory.watchlist[-8:]
+        if item.ticker not in held
     ]
 
     if not pf.holdings and not opp_lines:
@@ -65,10 +75,14 @@ RECENT NEWS ON POSITIONS:
 MARKET STANDOUTS NOT OWNED (top of momentum screen):
 {chr(10).join(opp_lines) or 'none'}
 
+PERSISTENT WATCHLIST:
+{chr(10).join(watch_lines) or 'none'}
+
 Surface a mix of: real risks (a holding breaking down, concentration), notable news, and
-genuine opportunities. Each finding: kind (opportunity/risk/news/concentration), ticker,
-a punchy headline, and grounded detail. Only include findings that actually matter to THIS
-investor — quality over filling the quota. Most important first."""
+genuine opportunities. Use the stored thesis/watchlist context when it changes what matters.
+Each finding: kind (opportunity/risk/news/concentration), ticker, a punchy headline, and
+grounded detail. Only include findings that actually matter to THIS investor — quality over
+filling the quota. Most important first."""
 
     feed = llm.parse(prompt, FindingsFeed, max_tokens=2500)
     feed.findings = feed.findings[:max_findings]

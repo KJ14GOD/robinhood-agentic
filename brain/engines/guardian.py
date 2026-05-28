@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 
 from ..data.news import headlines_as_prompt
-from ..data.prices import get_signals
+from ..data.prices import get_signals_many
 from ..models import GuardianDigest, Portfolio, RiskProfile
-from .. import config, llm
+from .. import config, llm, research_state
 from ..models import _now
 
 
@@ -30,14 +30,19 @@ def run_guardian(pf: Portfolio, profile: RiskProfile, save: bool = True) -> Guar
 
     weights = pf.weights()
     blocks = []
+    memory = research_state.load_state()
+    signals = get_signals_many([h.ticker for h in pf.holdings])
     for h in sorted(pf.holdings, key=lambda x: x.market_value, reverse=True):
-        sig = get_signals(h.ticker)
+        sig = signals.get(h.ticker)
         upnl = h.unrealized_pct
         blocks.append(
             f"{h.ticker}: weight {weights.get(h.ticker, 0):.1f}%, "
             f"unrealized {upnl:+.1f}% " if upnl is not None else f"{h.ticker}: weight {weights.get(h.ticker,0):.1f}%, "
         )
-        blocks.append("  " + sig.as_prompt())
+        blocks.append("  " + sig.as_prompt() if sig else "  no signal data")
+        if h.ticker in memory.theses:
+            thesis = memory.theses[h.ticker]
+            blocks.append(f"  stored thesis: {thesis.thesis} invalidation: {thesis.invalidation}")
         blocks.append("  " + headlines_as_prompt(h.ticker, limit=4).replace("\n", "\n  "))
 
     conc = _concentration_lines(pf, profile)

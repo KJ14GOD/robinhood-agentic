@@ -8,10 +8,13 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import yfinance as yf
+
+from .. import config
+from ..models import ChartPoint, StockChart
 
 # Quiet yfinance's noisy "possibly delisted" stderr logging — we handle empty
 # data gracefully (delisted/acquired holdings fall back to the broker's price).
@@ -73,11 +76,41 @@ def clean_ticker(ticker: str) -> str:
     return t
 
 
-@lru_cache(maxsize=512)
-def get_quote(ticker: str) -> Quote:
+import time as _time
+
+_QUOTE_CACHE: dict[str, tuple[float, Quote]] = {}
+_SIGNAL_CACHE: dict[str, tuple[float, TrendSignals]] = {}
+_SCREEN_CACHE: dict[str, tuple[float, list]] = {}
+
+
+def _fresh(hit: tuple[float, object] | None, ttl: int) -> bool:
+    return bool(hit and _time.time() - hit[0] < ttl)
+
+
+def clear_caches(tickers: list[str] | None = None) -> None:
+    """Force the next read to hit the data providers.
+
+    Use this when the user clicks refresh, when the dashboard background loop
+    runs, or after Robinhood positions change.
+    """
+    if tickers is None:
+        _QUOTE_CACHE.clear()
+        _SIGNAL_CACHE.clear()
+        _SCREEN_CACHE.clear()
+        return
+    cleaned = {clean_ticker(t) for t in tickers}
+    for t in cleaned:
+        _QUOTE_CACHE.pop(t, None)
+        _SIGNAL_CACHE.pop(t, None)
+
+
+def get_quote(ticker: str, refresh: bool = False) -> Quote:
     ticker = clean_ticker(ticker)
     if not ticker:
         return Quote(ticker=ticker, ok=False, error="empty symbol")
+    hit = _QUOTE_CACHE.get(ticker)
+    if not refresh and _fresh(hit, config.QUOTE_TTL_SECONDS):
+        return hit[1]
     try:
         t = yf.Ticker(ticker)
         fast = t.fast_info
@@ -90,9 +123,26 @@ def get_quote(ticker: str) -> Quote:
             name = t.info.get("shortName", "") or ""
         except Exception:
             pass
-        return Quote(ticker=ticker, price=price, name=name, ok=price > 0)
+        q = Quote(ticker=ticker, price=price, name=name, ok=price > 0)
     except Exception as e:  # noqa: BLE001
-        return Quote(ticker=ticker, ok=False, error=str(e))
+        q = Quote(ticker=ticker, ok=False, error=str(e))
+    _QUOTE_CACHE[ticker] = (_time.time(), q)
+    return q
+
+
+def get_quotes(tickers: list[str], refresh: bool = False,
+               max_workers: int = 8) -> dict[str, Quote]:
+    """Fetch many quotes concurrently while preserving the single-ticker cache."""
+    cleaned = [clean_ticker(t) for t in tickers if clean_ticker(t)]
+    if not cleaned:
+        return {}
+    out: dict[str, Quote] = {}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(cleaned))) as pool:
+        futures = {pool.submit(get_quote, t, refresh): t for t in cleaned}
+        for fut in as_completed(futures):
+            q = fut.result()
+            out[q.ticker] = q
+    return out
 
 
 def _rsi(closes, period: int = 14) -> float:
@@ -123,14 +173,7 @@ class ScreenRow:
     rsi_14: float = 0.0
     vol_annualized_pct: float = 0.0
 
-
-import time as _time
-
-_SCREEN_CACHE: dict[str, tuple[float, list]] = {}
-_SCREEN_TTL = 1800  # 30 min — intraday momentum doesn't shift faster than this matters
-
-
-def screen_universe(tickers: list[str]) -> list[ScreenRow]:
+def screen_universe(tickers: list[str], refresh: bool = False) -> list[ScreenRow]:
     """Download a year of closes for the whole list in ONE request and compute
     momentum/trend signals in memory. This is what makes a 500-name screen fast.
     Cached for 30 minutes so repeat discovery calls are instant.
@@ -139,7 +182,7 @@ def screen_universe(tickers: list[str]) -> list[ScreenRow]:
         return []
     key = ",".join(sorted(tickers))
     hit = _SCREEN_CACHE.get(key)
-    if hit and _time.time() - hit[0] < _SCREEN_TTL:
+    if not refresh and _fresh(hit, config.SCREEN_TTL_SECONDS):
         return hit[1]
     data = yf.download(
         tickers, period="1y", interval="1d", auto_adjust=True,
@@ -177,12 +220,15 @@ def screen_universe(tickers: list[str]) -> list[ScreenRow]:
     return rows
 
 
-def get_signals(ticker: str) -> TrendSignals:
+def get_signals(ticker: str, refresh: bool = False) -> TrendSignals:
     ticker = clean_ticker(ticker)
     sig = TrendSignals(ticker=ticker)
     if not ticker:
         sig.notes.append("empty symbol")
         return sig
+    hit = _SIGNAL_CACHE.get(ticker)
+    if not refresh and _fresh(hit, config.SIGNAL_TTL_SECONDS):
+        return hit[1]
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="1y", auto_adjust=True)
@@ -230,4 +276,46 @@ def get_signals(ticker: str) -> TrendSignals:
         sig.dividend_yield = dy * 100.0 if 0 < dy < 0.05 else dy
     except Exception as e:  # noqa: BLE001
         sig.notes.append(f"signal error: {e}")
+    _SIGNAL_CACHE[ticker] = (_time.time(), sig)
     return sig
+
+
+def get_signals_many(tickers: list[str], refresh: bool = False,
+                     max_workers: int = 8) -> dict[str, TrendSignals]:
+    cleaned = [clean_ticker(t) for t in tickers if clean_ticker(t)]
+    if not cleaned:
+        return {}
+    out: dict[str, TrendSignals] = {}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(cleaned))) as pool:
+        futures = {pool.submit(get_signals, t, refresh): t for t in cleaned}
+        for fut in as_completed(futures):
+            sig = fut.result()
+            out[sig.ticker] = sig
+    return out
+
+
+def get_chart(ticker: str, span: str = "3m", refresh: bool = False) -> StockChart:
+    ticker = clean_ticker(ticker)
+    span = span if span in {"1d", "1m", "3m", "6m", "1y"} else "3m"
+    if not ticker:
+        return StockChart(ticker="", span=span)  # type: ignore[arg-type]
+    period, interval = {
+        "1d": ("1d", "5m"),
+        "1m": ("1mo", "1d"),
+        "3m": ("3mo", "1d"),
+        "6m": ("6mo", "1d"),
+        "1y": ("1y", "1wk"),
+    }[span]
+    try:
+        hist = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=True)
+    except Exception:  # noqa: BLE001
+        hist = pd.DataFrame()
+    points: list[ChartPoint] = []
+    if not hist.empty:
+        closes = hist["Close"].dropna()
+        for idx, close in closes.items():
+            points.append(ChartPoint(at=idx.isoformat(), close=float(close)))
+    latest = points[-1].close if points else 0.0
+    first = points[0].close if points else 0.0
+    ret = ((latest - first) / first * 100.0) if first else 0.0
+    return StockChart(ticker=ticker, span=span, points=points, latest=latest, return_pct=ret)

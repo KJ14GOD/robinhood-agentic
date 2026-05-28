@@ -9,8 +9,19 @@ const money0 = (n) => "$" + (n || 0).toLocaleString(undefined, { maximumFraction
 const pct = (n) => (n == null ? "—" : (n >= 0 ? "+" : "") + n.toFixed(2) + "%");
 const cls = (n) => (n == null ? "" : n >= 0 ? "pos" : "neg");
 const esc = (s) => (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const mdLite = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-  .replace(/^#+\s*(.+)$/gm, "<strong>$1</strong>").replace(/\n/g, "<br>");
+const localTime = (s) => {
+  if (!s) return "";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+};
+const mdLite = (s) => {
+  let out = esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^#+\s*(.+)$/gm, "<strong>$1</strong>");
+  out = out.replace(/(?:^|\n)- (.+)(?=\n|$)/g, (_, item) => `\n<li>${item}</li>`);
+  out = out.replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>");
+  return out.replace(/\n/g, "<br>").replace(/<br><ul>/g, "<ul>").replace(/<\/ul><br>/g, "</ul>");
+};
 const toast = (m) => { const t = $("#toast"); t.textContent = m; t.classList.remove("hidden"); setTimeout(() => t.classList.add("hidden"), 2200); };
 const busy = (b, on) => { b.disabled = on; b.dataset.t = b.dataset.t || b.innerHTML; b.innerHTML = on ? '<span class="spin"></span>' : b.dataset.t; };
 
@@ -29,8 +40,51 @@ async function loadState() {
   $("#srcTag").textContent = STATE.source.toUpperCase();
   $("#totVal").textContent = money0(STATE.portfolio.total_value);
   const n = STATE.portfolio.holdings.length;
-  $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · cash ${money0(STATE.portfolio.cash)}`;
-  renderHoldings(); renderProfile(); renderEditor();
+  const stamp = localTime(STATE.as_of || STATE.portfolio.as_of);
+  const sync = STATE.sync_ok ? `updated ${stamp || "now"}` : `sync issue`;
+  $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · buying power ${money0(STATE.portfolio.buying_power ?? STATE.portfolio.cash)} · ${sync}`;
+  if (!STATE.sync_ok && STATE.sync_message) toast(STATE.sync_message);
+  else if (STATE.portfolio.pricing_warning) console.warn(STATE.portfolio.pricing_warning);
+  renderToday();
+  renderHoldings(); renderProfile(); renderEditor(); renderResearchState();
+}
+
+$("#refreshAll").onclick = async (e) => {
+  busy(e.target, true);
+  STATE = await api("refresh", {});
+  $("#srcTag").textContent = STATE.source.toUpperCase();
+  $("#totVal").textContent = money0(STATE.portfolio.total_value);
+  const n = STATE.portfolio.holdings.length;
+  const stamp = localTime(STATE.as_of || STATE.portfolio.as_of);
+  const sync = STATE.sync_ok ? `updated ${stamp || "now"}` : "sync issue";
+  $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · buying power ${money0(STATE.portfolio.buying_power ?? STATE.portfolio.cash)} · ${sync}`;
+  if (STATE.portfolio.pricing_warning) toast(STATE.portfolio.pricing_warning);
+  renderToday();
+  renderHoldings(); renderProfile(); renderEditor(); renderResearchState();
+  await loadScore();
+  busy(e.target, false);
+  toast(STATE.sync_ok ? "Live data refreshed" : "Refresh had a sync issue");
+};
+
+function renderToday() {
+  if (!STATE) return;
+  const hs = STATE.portfolio.holdings || [];
+  const weights = hs.map((h) => h.weight || 0);
+  const maxWeight = Math.max(0, ...weights);
+  const top = hs.find((h) => (h.weight || 0) === maxWeight);
+  const profileMax = STATE.profile?.max_single_position_pct || 15;
+  const concentration = maxWeight > profileMax ? "Elevated" : maxWeight > profileMax * 0.8 ? "Watch" : "Controlled";
+  const dataState = STATE.sync_ok ? (STATE.portfolio.pricing_warning ? "Approximate" : "Fresh") : "Needs sync";
+  const next = maxWeight > profileMax ? `Review ${top?.ticker || "largest position"}` : "No forced action";
+  const sourceLabel = STATE.portfolio.pricing_source || STATE.source;
+  const caveat = STATE.portfolio.pricing_warning ? "Overnight web value may differ" : "Use chat for a researched decision card";
+  $("#todayLine").textContent = hs.length
+    ? `${concentration} concentration, ${dataState.toLowerCase()} data, ${next}.`
+    : "Add or sync holdings to start the assistant workspace.";
+  $("#todayMetrics").innerHTML = `
+    <div class="signal"><label>Risk</label><strong>${concentration}</strong><span>${top ? `${top.ticker} is ${maxWeight.toFixed(1)}% of portfolio` : "No positions loaded"}</span></div>
+    <div class="signal"><label>Data</label><strong>${dataState}</strong><span>${esc(sourceLabel)}</span></div>
+    <div class="signal"><label>Next</label><strong>${next}</strong><span>${caveat}</span></div>`;
 }
 
 function renderHoldings() {
@@ -44,11 +98,56 @@ function renderHoldings() {
       <div class="chg ${cls(h.unrealized_pct)}">${pct(h.unrealized_pct)}</div>
     </div>`).join("") || `<p class="muted">No holdings yet.${STATE.source === "manual" ? " Add some below." : ""}</p>`;
   $("#editor").classList.toggle("hidden", STATE.source !== "manual");
-  $("#holdNote").textContent = STATE.source === "manual" ? "" : "read-only · Robinhood";
+  $("#holdNote").textContent = !STATE.sync_ok ? STATE.sync_message :
+    STATE.source === "manual" ? "" :
+    `read-only · ${STATE.portfolio.pricing_source || "Robinhood"}`;
 }
 
+function renderResearchState() {
+  const box = $("#watchlist");
+  if (!box) return;
+  const research = STATE.research || {};
+  const watch = research.watchlist || [];
+  const theses = research.theses || {};
+  box.innerHTML = watch.length ? watch.slice(-6).reverse().map((x) => {
+    const th = theses[x.ticker];
+    return `<div class="card">
+      <div class="head"><span class="tkr" onclick="analyze('${x.ticker}')">${x.ticker}</span><span class="pill ${x.mode}">${x.mode}</span></div>
+      <p>${esc(x.reason || (th && th.thesis) || "No thesis stored yet.")}</p>
+      ${th ? `<span class="lbl">Last decision</span><p>${esc(th.last_decision)} · ${esc(th.status)}</p>` : ""}
+      ${x.max_allocation_pct ? `<span class="lbl">Max size</span><p>${x.max_allocation_pct}%</p>` : ""}
+    </div>`;
+  }).join("") : `<p class="muted">No watchlist memory yet. Run Discover or analyze a ticker.</p>`;
+  renderBriefings(research.briefings || []);
+}
+
+function renderBriefings(items) {
+  const box = $("#briefings");
+  if (!box) return;
+  box.innerHTML = items.length ? items.slice(-4).reverse().map((b) => `
+    <div class="card">
+      <div class="head"><span class="tkr">${esc(b.kind || "briefing")}</span><span class="pill neutral">${esc((b.created_at || "").slice(0, 10))}</span></div>
+      <p><strong>${esc(b.title || "Briefing")}</strong></p>
+      <p>${esc(b.summary || "")}</p>
+      ${(b.bullets || []).slice(0, 5).map((x) => `<p>· ${esc(x)}</p>`).join("")}
+      ${(b.actions || []).length ? `<span class="lbl">Actions</span>${b.actions.map((x) => `<p>${esc(x)}</p>`).join("")}` : ""}
+    </div>`).join("") : `<p class="muted">No briefings yet. Generate one for morning or evening.</p>`;
+}
+
+async function createBriefing(kind, btn) {
+  busy(btn, true);
+  const b = await api("briefing", { kind });
+  STATE.research = STATE.research || {};
+  STATE.research.briefings = [...(STATE.research.briefings || []), b];
+  renderBriefings(STATE.research.briefings);
+  busy(btn, false);
+  toast(`${kind} briefing saved`);
+}
+
+$("#morningBrief").onclick = (e) => createBriefing("morning", e.target);
+$("#eveningBrief").onclick = (e) => createBriefing("evening", e.target);
+
 // ---------- findings feed ----------
-const FIC = { opportunity: "🟢", risk: "🔴", news: "🟡", concentration: "⚠️" };
 async function loadFeed() {
   const box = $("#feed");
   box.innerHTML = `<div class="loading"><span class="spin"></span> Scanning your portfolio and the market…</div>`;
@@ -56,7 +155,7 @@ async function loadFeed() {
   const f = r.findings || [];
   box.innerHTML = f.length ? f.map((x) => `
     <div class="finding">
-      <div class="ic">${FIC[x.kind] || "•"}</div>
+      <div class="ic ${x.kind || ""}"></div>
       <div class="body">
         <div class="ft">${x.ticker ? `<span class="tk" onclick="analyze('${x.ticker}')">${x.ticker}</span> ` : ""}${esc(x.headline)}</div>
         <div class="fd">${esc(x.detail)}</div>
@@ -102,7 +201,7 @@ async function analyze(ticker) {
 }
 window.analyze = analyze;
 function ticketHTML(t) {
-  return `<div class="head"><span class="tkr">${t.ticker}</span><span class="pill ${t.action}">${t.action}</span></div>
+  return `<div class="head"><span class="tkr">${t.ticker}</span><span class="pill ${t.action}">${esc(t.decision_label || t.action)}</span></div>
     <div class="conv">conviction ${t.conviction}/10</div><div class="bar"><i style="width:${t.conviction * 10}%"></i></div>
     <span class="lbl">Thesis</span><p>${esc(t.thesis)}</p>
     <span class="lbl">Catalyst</span><p>${esc(t.catalyst)}</p>
@@ -160,14 +259,35 @@ $("#runScore").onclick = loadScore;
 
 // ---------- agentic chat (streaming) ----------
 const CHAT_HISTORY = [];
+function chartHTML(chart) {
+  const pts = (chart.points || []).map((p) => p.close).filter((n) => Number.isFinite(n));
+  if (pts.length < 2) return "";
+  const w = 520, h = 96, pad = 6;
+  const min = Math.min(...pts), max = Math.max(...pts), range = max - min || 1;
+  const path = pts.map((v, i) => {
+    const x = pad + (i / (pts.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const up = (chart.return_pct || 0) >= 0;
+  return `<div class="chat-chart">
+    <div class="ct"><strong>${esc(chart.ticker)} ${esc(chart.span)}</strong><span class="${up ? "pos" : "neg"}">${pct(chart.return_pct || 0)}</span></div>
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <path d="${path}" fill="none" stroke="${up ? "#00a504" : "#ff5000"}" stroke-width="3" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div class="sub2">latest ${money(chart.latest || 0)} · ${esc(chart.source || "chart")}</div>
+  </div>`;
+}
+
 async function sendChat() {
   const input = $("#chatInput"); const msg = input.value.trim(); if (!msg) return;
   const log = $("#chatLog");
   log.innerHTML += `<div class="msg user"><span>${esc(msg)}</span></div>`;
   input.value = ""; log.scrollTop = log.scrollHeight;
   const id = "b" + Date.now();
-  log.innerHTML += `<div class="msg bot" id="${id}"><div class="steps"></div><span class="ans"><span class="spin"></span></span></div>`;
-  const wrap = $("#" + id), steps = wrap.querySelector(".steps"), ans = wrap.querySelector(".ans");
+  log.innerHTML += `<div class="msg bot" id="${id}"><details class="toolbox" open><summary>Research trace</summary><div class="steps"></div></details><span class="ans"><span class="spin"></span></span></div>`;
+  const wrap = $("#" + id), trace = wrap.querySelector(".toolbox"), steps = wrap.querySelector(".steps"), ans = wrap.querySelector(".ans");
+  $("#assistantStatus").textContent = "Researching";
   log.scrollTop = log.scrollHeight;
 
   const res = await fetch("/api/chat/stream", {
@@ -184,14 +304,18 @@ async function sendChat() {
       const line = p.replace(/^data:\s*/, "").trim(); if (!line) continue;
       let ev; try { ev = JSON.parse(line); } catch { continue; }
       if (ev.type === "tool") steps.innerHTML += `<div class="step">🔍 ${ev.name.replace(/_/g, " ")} <em>${esc(JSON.stringify(ev.input))}</em></div>`;
+      else if (ev.type === "chart") steps.innerHTML += chartHTML(ev.chart || {});
       else if (ev.type === "tool_result") steps.innerHTML += `<div class="step result">${esc(ev.summary)}</div>`;
       else if (ev.type === "note" && !answer) steps.innerHTML += `<div class="step note">💭 ${esc(ev.text).slice(0, 200)}</div>`;
       else if (ev.type === "answer") answer = ev.text;
-      else if (ev.type === "error") answer = "⚠ " + ev.text;
+      else if (ev.type === "error") answer = "Error: " + ev.text;
       log.scrollTop = log.scrollHeight;
     }
   }
   ans.innerHTML = mdLite(answer);
+  if (!steps.innerHTML.trim()) trace.remove();
+  else trace.open = false;
+  $("#assistantStatus").textContent = "Ready";
   CHAT_HISTORY.push({ role: "user", content: msg }, { role: "assistant", content: answer });
   log.scrollTop = log.scrollHeight;
 }
@@ -239,3 +363,4 @@ $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") clos
 
 // ---------- boot ----------
 loadState().then(() => { loadFeed(); loadScore(); });
+setInterval(loadState, 60000);

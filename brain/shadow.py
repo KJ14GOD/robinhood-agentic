@@ -53,12 +53,12 @@ def log_recommendation(ticket: TradeTicket, source: str = "analyst") -> ShadowTr
     return trade
 
 
-def mark_to_market() -> list[ShadowTrade]:
+def mark_to_market(refresh: bool = False) -> list[ShadowTrade]:
     """Refresh last_price on all open trades. Call before reporting."""
     trades = _read_all()
     for t in trades:
         if not t.closed:
-            t.last_price = get_quote(t.ticker).price
+            t.last_price = get_quote(t.ticker, refresh=refresh).price
             t.last_at = _now()
     _write_all(trades)
     return trades
@@ -72,9 +72,9 @@ def set_user_executed(trade_id: str, executed: bool) -> None:
     _write_all(trades)
 
 
-def scoreboard() -> dict:
+def scoreboard(refresh: bool = False) -> dict:
     """The track record. This is the number that earns (or loses) trust."""
-    trades = mark_to_market()
+    trades = mark_to_market(refresh=refresh)
     if not trades:
         return {"count": 0, "win_rate": 0.0, "avg_return_pct": 0.0, "trades": []}
     returns = [t.return_pct() for t in trades]

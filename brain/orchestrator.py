@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from . import agent, llm, profile_store, shadow
-from .engines import analyst, discovery, findings, guardian
-from .models import DiscoveryResult, GuardianDigest, Portfolio, RiskProfile, TradeTicket
-from .portfolio import get_portfolio
+from . import agent, llm, profile_store, research_state, shadow
+from .data.news import clear_news_cache
+from .data.prices import clear_caches
+from .engines import analyst, briefing, discovery, findings, guardian
+from .models import Briefing, DiscoveryResult, GuardianDigest, Portfolio, ResearchState, RiskProfile, TradeTicket
+from .portfolio import clear_portfolio_cache, get_portfolio
 
 
 # --- profile ---------------------------------------------------------------- #
@@ -31,13 +33,31 @@ def refresh_learning() -> RiskProfile:
     """Re-read the user's actual holdings into the investor signature. Called
     after feedback and exposed so the UI can trigger a learning refresh."""
     from . import profile_learning
-    profile = profile_learning.learn_from_holdings(profile_store.load_profile(), get_portfolio())
+    profile = profile_learning.learn_from_holdings(profile_store.load_profile(), get_portfolio(refresh=True))
     return profile_store.save_profile(profile)
 
 
 # --- portfolio -------------------------------------------------------------- #
-def portfolio() -> Portfolio:
-    return get_portfolio()
+def portfolio(refresh: bool = False) -> Portfolio:
+    return get_portfolio(refresh=refresh)
+
+
+def refresh_live_state() -> Portfolio:
+    """Force a read-through of market data and broker/manual portfolio state."""
+    clear_portfolio_cache()
+    clear_caches()
+    clear_news_cache()
+    return get_portfolio(refresh=True)
+
+
+def get_research_state() -> ResearchState:
+    return research_state.load_state()
+
+
+def create_briefing(kind: str = "manual") -> Briefing:
+    if kind not in {"morning", "evening", "manual"}:
+        kind = "manual"
+    return briefing.generate(kind, get_portfolio(refresh=True), get_profile())
 
 
 # --- engines ---------------------------------------------------------------- #
@@ -61,8 +81,8 @@ def feed():
 
 
 # --- shadow mode ------------------------------------------------------------ #
-def scoreboard() -> dict:
-    return shadow.scoreboard()
+def scoreboard(refresh: bool = False) -> dict:
+    return shadow.scoreboard(refresh=refresh)
 
 
 # --- agentic chat ----------------------------------------------------------- #

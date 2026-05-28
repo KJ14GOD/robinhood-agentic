@@ -13,9 +13,9 @@ from __future__ import annotations
 import json
 from typing import Callable, Iterator
 
-from . import llm, profile_store
+from . import llm, profile_store, research_state
 from .data.news import get_news
-from .data.prices import get_signals, screen_universe
+from .data.prices import get_chart, get_signals, screen_universe
 from .data.universe import screening_universe
 from .engines.discovery import _flavor_ok, _screen_score
 from .portfolio import get_portfolio
@@ -28,8 +28,15 @@ You are operating in AGENT MODE with tools. Work like a real analyst:
 - Investigate before concluding. Pull the data you need — don't guess.
 - When asked about the portfolio, read it, then dig into the specific holdings that matter.
 - When hunting for ideas, screen the market, then pull signals/news on the standouts.
+- When price action matters, fetch a chart and use it in the answer.
+- Save only researched, genuinely useful ideas to watchlist memory; do not save every ticker mentioned.
 - Chain tools as needed. Be efficient: don't pull data you won't use.
 - End with a clear, decision-useful answer grounded in what the tools returned.
+- Format final answers as:
+  **Read:** one sentence.
+  **Evidence:** 2-4 bullets.
+  **Action:** 1-4 concrete actions or non-actions.
+  **Watch:** optional, only if there is a specific trigger/level/event.
 - You proactively surface findings the user didn't explicitly ask for but should know
   (a concentration risk, a holding breaking down, a standout opportunity)."""
 
@@ -85,6 +92,42 @@ TOOLS = [
                        "recommendations to who they are.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "get_research_memory",
+        "description": "Persistent watchlist, stored theses, invalidation rules, and alerts "
+                       "from prior recommendations. Use this before judging holdings or "
+                       "continuing an older investment idea.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_stock_chart",
+        "description": "Fetch chart data for a ticker and render an inline chart in chat. "
+                       "Use this when the user asks about price action, entries, pullbacks, "
+                       "momentum, support, or wants to see a graph.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "span": {"type": "string", "enum": ["1d", "1m", "3m", "6m", "1y"]},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "save_watchlist_item",
+        "description": "Persist a stock idea to the user's watchlist/research memory. "
+                       "Use only when an idea should be tracked after analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "reason": {"type": "string"},
+                "mode": {"type": "string", "enum": ["stable", "balanced", "volatile"]},
+                "max_allocation_pct": {"type": "number"},
+            },
+            "required": ["ticker", "reason"],
+        },
+    },
 ]
 
 
@@ -130,12 +173,30 @@ def _tool_profile() -> str:
     return profile_store.load_profile().describe()
 
 
+def _tool_memory() -> str:
+    return research_state.summarize_for_prompt()
+
+
+def _tool_chart(ticker: str, span: str = "3m") -> str:
+    return get_chart(ticker, span).summary()
+
+
+def _tool_save_watchlist(ticker: str, reason: str, mode: str = "balanced",
+                         max_allocation_pct: float = 0.0) -> str:
+    research_state.save_watch_item(ticker, reason, mode, max_allocation_pct)
+    size = f", max allocation {max_allocation_pct:.1f}%" if max_allocation_pct else ""
+    return f"Saved {ticker.upper()} to watchlist as {mode}{size}: {reason}"
+
+
 _DISPATCH: dict[str, Callable[..., str]] = {
     "get_stock_signals": _tool_get_signals,
     "get_stock_news": _tool_get_news,
     "screen_market": _tool_screen,
     "get_my_portfolio": _tool_portfolio,
     "get_my_profile": _tool_profile,
+    "get_research_memory": _tool_memory,
+    "get_stock_chart": _tool_chart,
+    "save_watchlist_item": _tool_save_watchlist,
 }
 
 
@@ -190,6 +251,9 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
         for tu in tool_uses:
             yield {"type": "tool", "name": tu.name, "input": tu.input}
             out = _execute(tu.name, tu.input)
+            if tu.name == "get_stock_chart":
+                chart = get_chart(tu.input.get("ticker", ""), tu.input.get("span", "3m"))
+                yield {"type": "chart", "chart": chart.model_dump()}
             yield {"type": "tool_result", "name": tu.name,
                    "summary": out[:240] + ("…" if len(out) > 240 else "")}
             results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out})
