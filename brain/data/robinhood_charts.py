@@ -9,7 +9,17 @@ from ..models import ChartPoint, StockChart
 from ..portfolio import robinhood as rh_portfolio
 
 _CACHE: dict[str, tuple[float, StockChart]] = {}
-_TTL_SECONDS = 60
+
+
+def _ttl(span: str) -> int:
+    return {
+        "1d": 20,
+        "1w": 45,
+        "1m": 120,
+        "3m": 300,
+        "6m": 600,
+        "1y": 900,
+    }.get(span, 300)
 
 
 def _span_args(span: str) -> tuple[str, str, str]:
@@ -63,11 +73,11 @@ def _chart(ticker: str, span: str, points: list[ChartPoint], source: str) -> Sto
     return StockChart(ticker=ticker, span=span, points=points, latest=latest, return_pct=ret, source=source)
 
 
-def _fresh(key: str) -> StockChart | None:
+def _fresh(key: str, span: str) -> StockChart | None:
     import time
 
     hit = _CACHE.get(key)
-    if hit and time.time() - hit[0] < _TTL_SECONDS:
+    if hit and time.time() - hit[0] < _ttl(span):
         return hit[1]
     return None
 
@@ -79,11 +89,11 @@ def _store(key: str, chart: StockChart) -> StockChart:
     return chart
 
 
-def get_stock_chart(ticker: str, span: str = "3m") -> StockChart:
+def get_stock_chart(ticker: str, span: str = "3m", refresh: bool = False) -> StockChart:
     if config.PORTFOLIO_SOURCE != "robinhood":
         return StockChart(ticker=ticker, span=span)  # type: ignore[arg-type]
     key = f"stock:{ticker.upper()}:{span}"
-    cached = _fresh(key)
+    cached = None if refresh else _fresh(key, span)
     if cached:
         return cached
     rh_portfolio._login()
@@ -95,11 +105,11 @@ def get_stock_chart(ticker: str, span: str = "3m") -> StockChart:
     return _store(key, _chart(ticker.upper(), span, points, "Robinhood historicals"))
 
 
-def get_portfolio_chart(span: str = "3m") -> StockChart:
+def get_portfolio_chart(span: str = "3m", refresh: bool = False) -> StockChart:
     if config.PORTFOLIO_SOURCE != "robinhood":
         return StockChart(ticker="PORTFOLIO", span=span)  # type: ignore[arg-type]
     key = f"portfolio:{span}"
-    cached = _fresh(key)
+    cached = None if refresh else _fresh(key, span)
     if cached:
         return cached
     rh_portfolio._login()

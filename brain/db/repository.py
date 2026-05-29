@@ -312,6 +312,58 @@ def save_research_event(
         return
 
 
+def event_exists_recent(event_type: str, ticker: str, within_hours: float = 12.0) -> bool:
+    """Dedup guard for the monitor loop: has this exact (event_type, ticker) event
+    already fired inside the cooldown window? Keeps the loop from re-logging the
+    same standing condition (e.g. 'over concentration line') every cycle."""
+    if not _ensure_ready():
+        return False
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+        with db_session() as session:
+            stmt = (
+                select(ResearchEventRecord.id)
+                .where(ResearchEventRecord.event_type == event_type)
+                .where(ResearchEventRecord.ticker == ticker.upper())
+                .where(ResearchEventRecord.created_at >= cutoff)
+                .limit(1)
+            )
+            return session.execute(stmt).first() is not None
+    except Exception:
+        return False
+
+
+def recent_events(limit: int = 50, within_hours: float | None = None,
+                  event_types: list[str] | None = None) -> list[dict]:
+    """Read back the persisted event stream for the Today surface, newest first."""
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            stmt = select(ResearchEventRecord).order_by(desc(ResearchEventRecord.created_at))
+            if within_hours is not None:
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+                stmt = stmt.where(ResearchEventRecord.created_at >= cutoff)
+            if event_types:
+                stmt = stmt.where(ResearchEventRecord.event_type.in_(event_types))
+            rows = session.execute(stmt.limit(limit)).scalars().all()
+            return [
+                {
+                    "id": r.id,
+                    "ticker": r.ticker,
+                    "event_type": r.event_type,
+                    "severity": r.severity,
+                    "title": r.title,
+                    "summary": r.summary,
+                    "source": r.source,
+                    "created_at": r.created_at.isoformat() if r.created_at else "",
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
 def upsert_ticker_research(
     ticker: str,
     action_label: str,

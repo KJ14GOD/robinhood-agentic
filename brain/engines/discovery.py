@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from ..data.prices import ScreenRow, get_signals_many
 from ..data.universe import screening_universe
-from ..models import DiscoveryResult, RiskProfile
+from ..models import DiscoveryResult, RiskProfile, TradeTicket
 from ..data import prices
+from .. import shadow
 from .. import llm, research_state
 
 
@@ -73,4 +74,18 @@ Return at most {top_n}."""
     result = llm.parse(prompt, DiscoveryResult, max_tokens=3000)
     result.ideas = result.ideas[:top_n]
     research_state.add_discovery_ideas(result.ideas)
+
+    # Log each new idea to shadow so the track record covers discovery, not just
+    # the analyst. Dedup so re-running discovery doesn't double-log the same name.
+    for idea in result.ideas:
+        if shadow.has_open(idea.ticker):
+            continue
+        shadow.log_recommendation(
+            TradeTicket(
+                ticker=idea.ticker, action="buy", conviction=idea.conviction,
+                thesis=idea.why_now, catalyst=idea.signal_summary,
+                risks=f"Risk flavor: {idea.risk_flavor}.",
+            ),
+            source="discovery",
+        )
     return result

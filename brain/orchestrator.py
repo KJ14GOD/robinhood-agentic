@@ -13,7 +13,7 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, briefing, discovery, findings, guardian
+from .engines import analyst, briefing, discovery, findings, guardian, monitor
 from .models import Briefing, ChartPoint, DiscoveryResult, GuardianDigest, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
 from .portfolio import clear_portfolio_cache, get_portfolio
 
@@ -89,15 +89,23 @@ def _anchor_to_now(chart: StockChart, current_price: float) -> StockChart:
 
 
 def stock_chart(ticker: str, span: str = "3m", refresh: bool = False) -> StockChart:
-    rh_chart = robinhood_charts.get_stock_chart(ticker, span=span)
+    rh_chart = robinhood_charts.get_stock_chart(ticker, span=span, refresh=refresh)
     chart = rh_chart if rh_chart.points else get_chart(ticker, span=span, refresh=refresh)
-    quote = get_quote(ticker, refresh=refresh)
+    # Anchor to the *warm* quote, never a forced re-fetch. Forcing a live quote on
+    # every chart poll hammered the quote API; when it rate-limited it returned 0,
+    # so _anchor_to_now skipped the live point and the line froze at the last bar.
+    # The warm quote is kept fresh by the background refresh loop instead.
+    quote = get_quote(ticker)
     return _anchor_to_now(chart, quote.price if quote.ok else 0.0)
 
 
 def portfolio_chart(span: str = "3m", refresh: bool = False) -> StockChart:
-    pf = get_portfolio(refresh=refresh)
-    rh_chart = robinhood_charts.get_portfolio_chart(span=span)
+    # Use the warm portfolio snapshot for the anchor — same value the header shows,
+    # no extra broker round-trip — so the chart tip can't diverge from total value
+    # and can't be silently zeroed by a rate-limited refresh. Only the historical
+    # body honours `refresh`.
+    pf = get_portfolio()
+    rh_chart = robinhood_charts.get_portfolio_chart(span=span, refresh=refresh)
     if rh_chart.points:
         chart = rh_chart
     else:
@@ -160,6 +168,22 @@ def daily_digest() -> GuardianDigest:
 def feed():
     """Proactive findings for the always-on feed."""
     return findings.scan(get_portfolio(), get_profile())
+
+
+def run_monitors() -> list[dict]:
+    """Cheap deterministic event scan over the live portfolio. Persists new,
+    deduped events to the DB. Called by the background loop — no LLM, no tokens."""
+    return monitor.run_monitors(get_portfolio(), get_profile())
+
+
+def today_events(limit: int = 40, within_hours: float = 72.0) -> dict:
+    """The persisted event stream for the Today surface, newest first, ranked so
+    the loudest (alert) items lead. Reads the DB — does not trigger a scan."""
+    rank = {"alert": 0, "warn": 1, "info": 2}
+    events = db_repo.recent_events(limit=limit, within_hours=within_hours)
+    events.sort(key=lambda e: e.get("created_at", ""), reverse=True)   # newest first
+    events.sort(key=lambda e: rank.get(e.get("severity"), 3))          # stable: alert → warn → info
+    return {"events": events, "count": len(events)}
 
 
 # --- shadow mode ------------------------------------------------------------ #

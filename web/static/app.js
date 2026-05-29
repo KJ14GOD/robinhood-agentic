@@ -29,8 +29,69 @@ let STATE = null;
 let SELECTED_CHART = "portfolio";
 let CHART_SPAN = "3m";
 const CHART_STORE = {};
-const CHART_CACHE = {};
+const CHART_CACHE = {};   // body cache, TTL'd — decides when to refetch from the server
+const CHART_RAW = {};     // last raw server chart per key, no TTL — for re-applying the live tip
 const PREFETCHING = new Set();
+
+function chartTtl(span) {
+  return ({ "1d": 20000, "1w": 45000, "1m": 120000, "3m": 300000, "6m": 600000, "1y": 900000 })[span] || 300000;
+}
+
+function cachedChart(key) {
+  const hit = CHART_CACHE[key];
+  if (!hit) return null;
+  return Date.now() - hit.at < chartTtl(hit.span) ? hit.chart : null;
+}
+
+function setCachedChart(key, span, chart) {
+  CHART_CACHE[key] = { at: Date.now(), span, chart };
+  CHART_RAW[key] = chart;
+}
+
+function clearChartCache() {
+  for (const key of Object.keys(CHART_CACHE)) delete CHART_CACHE[key];
+  PREFETCHING.clear();
+}
+
+// The live value for whatever the chart is currently showing, taken straight from
+// the freshest STATE we have — the exact same numbers the header and holdings list
+// render. The chart tip is pinned to this so it can never disagree with them.
+function liveValueForChart(ticker) {
+  if (!STATE || !STATE.portfolio) return null;
+  if (ticker === "portfolio") return STATE.portfolio.total_value || null;
+  const h = (STATE.portfolio.holdings || []).find((x) => x.ticker === ticker);
+  return h && h.current_price ? h.current_price : null;
+}
+
+// Return a copy of the server chart whose rightmost point reflects the live value
+// at STATE.as_of. The server already tries to anchor a "now" point; we override it
+// client-side so the tip keeps moving every state refresh even if a chart fetch
+// failed or was skipped. Replace a near-now trailing point; otherwise extend.
+function withLiveTip(chart, ticker) {
+  const live = liveValueForChart(ticker);
+  if (!chart || !Array.isArray(chart.points) || !chart.points.length || !live) return chart;
+  const pts = chart.points.slice();
+  const stamp = STATE.as_of || new Date().toISOString();
+  const lastAt = new Date(pts[pts.length - 1].at).getTime();
+  const recent = Number.isFinite(lastAt) && Date.now() - lastAt < 15 * 60 * 1000;
+  const tip = { at: stamp, close: live };
+  if (recent) pts[pts.length - 1] = tip; else pts.push(tip);
+  const first = pts[0].close || 0;
+  const ret = first ? ((live - first) / first) * 100 : (chart.return_pct || 0);
+  return { ...chart, points: pts, latest: live, return_pct: ret };
+}
+
+// Paint a raw server chart into the box with the live tip applied. Used by both the
+// fetch path and the no-network tip refresh, so they always render identically.
+function paintChart(box, rawChart, ticker) {
+  CHART_RAW[`${ticker}:${CHART_SPAN}`] = rawChart;
+  const chart = withLiveTip(rawChart, ticker);
+  box.classList.remove("loading", "refreshing");
+  const retClass = (chart.return_pct || 0) >= 0 ? "pos" : "neg";
+  $("#chartMeta").innerHTML = `<span class="${retClass}">${pct(chart.return_pct || 0)}</span> over ${esc(CHART_SPAN.toUpperCase())}`;
+  box.innerHTML = chartBlock(chart);
+  bindChartInteractions();
+}
 
 // tabs
 $$(".tab").forEach((t) => t.addEventListener("click", () => {
@@ -45,6 +106,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
 async function loadState() {
   STATE = await api("state");
   renderState();
+  loadEvents();  // cheap DB read; keeps the "What changed" stream fresh on the 60s tick
 }
 
 function renderState() {
@@ -89,7 +151,9 @@ async function refreshLive({ quiet = false } = {}) {
 
 $("#refreshAll").onclick = async (e) => {
   busy(e.target, true);
+  clearChartCache();
   await refreshLive({ quiet: true });
+  if ($("#portfolio").classList.contains("active")) await loadPortfolioChart({ force: true });
   await loadScore();
   busy(e.target, false);
   toast(STATE.sync_ok ? "Live data refreshed" : "Refresh had a sync issue");
@@ -234,7 +298,7 @@ function bindChartInteractions() {
   svg.addEventListener("touchend", () => chartLeave(svg));
 }
 
-async function loadPortfolioChart() {
+async function loadPortfolioChart({ force = false } = {}) {
   const box = $("#portfolioChart");
   if (!box || !STATE) return;
   const ticker = SELECTED_CHART || "portfolio";
@@ -242,47 +306,54 @@ async function loadPortfolioChart() {
   const cacheKey = `${ticker}:${CHART_SPAN}`;
   $("#chartTitle").textContent = label;
   $("#resetChart").classList.toggle("hidden", ticker === "portfolio");
-  if (CHART_CACHE[cacheKey]) {
-    const chart = CHART_CACHE[cacheKey];
-    const retClass = (chart.return_pct || 0) >= 0 ? "pos" : "neg";
-    $("#chartMeta").innerHTML = `<span class="${retClass}">${pct(chart.return_pct || 0)}</span> over ${esc(CHART_SPAN.toUpperCase())}`;
-    box.classList.remove("loading", "refreshing");
-    box.innerHTML = chartBlock(chart);
-    bindChartInteractions();
+
+  // Fresh body cached → paint it (with a live tip from current STATE) and stop.
+  const cached = force ? null : cachedChart(cacheKey);
+  if (cached) {
+    paintChart(box, cached, ticker);
     prefetchChartSet(ticker);
     return;
   }
-  $("#chartMeta").textContent = "Loading chart...";
-  if (box.querySelector("svg")) box.classList.add("refreshing");
-  else {
+
+  // Body needs (re)fetching. If a chart is already on screen, keep it and just
+  // refresh its tip immediately so the line stays live while the body loads;
+  // otherwise show a spinner for the first paint.
+  const haveDrawn = box.querySelector("svg") && CHART_RAW[cacheKey];
+  if (haveDrawn) {
+    paintChart(box, CHART_RAW[cacheKey], ticker);
+    box.classList.add("refreshing");
+  } else {
+    $("#chartMeta").textContent = "Loading chart...";
     box.innerHTML = `<span class="spin"></span>`;
     box.classList.add("loading");
   }
+
   try {
-    const r = await fetch(`/api/chart/${encodeURIComponent(ticker)}?span=${encodeURIComponent(CHART_SPAN)}`);
+    const r = await fetch(`/api/chart/${encodeURIComponent(ticker)}?span=${encodeURIComponent(CHART_SPAN)}${force ? "&refresh=true" : ""}`);
     const chart = await r.json();
-    CHART_CACHE[cacheKey] = chart;
-    box.classList.remove("loading", "refreshing");
-    const retClass = (chart.return_pct || 0) >= 0 ? "pos" : "neg";
-    $("#chartMeta").innerHTML = `<span class="${retClass}">${pct(chart.return_pct || 0)}</span> over ${esc(CHART_SPAN.toUpperCase())}`;
-    box.innerHTML = chartBlock(chart);
-    bindChartInteractions();
+    if (!chart || !Array.isArray(chart.points) || !chart.points.length) throw new Error("empty chart");
+    setCachedChart(cacheKey, CHART_SPAN, chart);
+    paintChart(box, chart, ticker);
     prefetchChartSet(ticker);
   } catch (e) {
     box.classList.remove("loading", "refreshing");
-    $("#chartMeta").textContent = "Chart failed to load";
-    box.innerHTML = `<div class="empty-chart">Chart request failed.</div>`;
+    // Never wipe a working chart over a transient fetch hiccup — the live tip
+    // already kept it current. Only show an error if we have nothing to show.
+    if (!box.querySelector("svg")) {
+      $("#chartMeta").textContent = "Chart failed to load";
+      box.innerHTML = `<div class="empty-chart">Chart request failed.</div>`;
+    }
   }
 }
 
 function prefetchChartSet(ticker) {
   ["1d", "1w", "1m", "3m", "6m", "1y"].forEach((span) => {
     const key = `${ticker}:${span}`;
-    if (span === CHART_SPAN || CHART_CACHE[key] || PREFETCHING.has(key)) return;
+    if (span === CHART_SPAN || cachedChart(key) || PREFETCHING.has(key)) return;
     PREFETCHING.add(key);
     fetch(`/api/chart/${encodeURIComponent(ticker)}?span=${encodeURIComponent(span)}`)
       .then((r) => r.json())
-      .then((chart) => { if (chart && chart.points) CHART_CACHE[key] = chart; })
+      .then((chart) => { if (chart && chart.points) setCachedChart(key, span, chart); })
       .catch(() => {})
       .finally(() => PREFETCHING.delete(key));
   });
@@ -430,6 +501,38 @@ async function createBriefing(kind, btn) {
 $("#morningBrief").onclick = (e) => createBriefing("morning", e.target);
 $("#eveningBrief").onclick = (e) => createBriefing("evening", e.target);
 
+// ---------- event stream (deterministic monitor) ----------
+function sevKind(sev) { return ({ alert: "risk", warn: "concentration", info: "news" })[sev] || "news"; }
+function eventAge(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const m = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+async function loadEvents() {
+  const box = $("#eventStream");
+  if (!box) return;
+  let r;
+  try { r = await api("events"); } catch (e) { return; }
+  const evs = (r && r.events) || [];
+  const cnt = $("#eventCount");
+  if (cnt) cnt.textContent = evs.length ? `${evs.length} recent` : "";
+  box.innerHTML = evs.length ? evs.map((e) => `
+    <div class="finding">
+      <div class="ic ${sevKind(e.severity)}"></div>
+      <div class="body">
+        <div class="ft">${e.ticker ? `<span class="tk" onclick="analyze('${esc(e.ticker)}')">${esc(e.ticker)}</span> ` : ""}${esc(e.title)}</div>
+        <div class="fd">${esc(e.summary)} <span class="sub2">· ${eventAge(e.created_at)}</span></div>
+      </div>
+      <span class="pill ${sevKind(e.severity)}">${esc(e.severity)}</span>
+    </div>`).join("") : `<div class="loading">All clear — nothing flagged. The monitor scans every couple of minutes.</div>`;
+}
+
 // ---------- findings feed ----------
 async function loadFeed() {
   const box = $("#feed");
@@ -446,7 +549,7 @@ async function loadFeed() {
       <span class="pill ${x.kind}">${x.kind}</span>
     </div>`).join("") : `<div class="loading">Nothing pressing right now. Add holdings or ask the brain below.</div>`;
 }
-$("#refreshFeed").onclick = loadFeed;
+$("#refreshFeed").onclick = () => { loadEvents(); loadFeed(); };
 
 // ---------- editor ----------
 function editorRow(h = {}) {

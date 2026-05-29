@@ -187,16 +187,26 @@ def feed():
     return brain.feed().model_dump()
 
 
+@app.get("/api/events")
+def events(limit: int = Query(40, ge=1, le=200)):
+    """Persisted, deduped event stream from the deterministic monitor loop."""
+    return brain.today_events(limit=limit)
+
+
 @app.post("/api/briefing")
 def briefing(body: BriefingBody):
     return brain.create_briefing(body.kind).model_dump()
 
 
 @app.get("/api/chart/{ticker}")
-def chart(ticker: str, span: str = Query("3m", pattern="^(1d|1w|1m|3m|6m|1y)$")):
+def chart(
+    ticker: str,
+    span: str = Query("3m", pattern="^(1d|1w|1m|3m|6m|1y)$"),
+    refresh: bool = False,
+):
     if ticker.lower() in {"portfolio", "total", "account"}:
-        return brain.portfolio_chart(span=span).model_dump()
-    return brain.stock_chart(ticker, span=span).model_dump()
+        return brain.portfolio_chart(span=span, refresh=refresh).model_dump()
+    return brain.stock_chart(ticker, span=span, refresh=refresh).model_dump()
 
 
 @app.get("/api/scoreboard")
@@ -221,6 +231,7 @@ async def _refresh_loop() -> None:
         try:
             await asyncio.to_thread(brain.refresh_live_state)
             await asyncio.to_thread(brain.scoreboard, True)
+            await asyncio.to_thread(brain.run_monitors)  # cheap, no-LLM event scan
             _REFRESH["last_ok"] = time.time()
             _REFRESH["last_error"] = None
         except Exception as e:  # noqa: BLE001

@@ -34,6 +34,18 @@ def _write_all(trades: list[ShadowTrade]) -> None:
     )
 
 
+def has_open(ticker: str, source: Optional[str] = None) -> bool:
+    """Is there already an open (un-closed) paper trade for this ticker? Used to
+    keep engines from logging the same idea on every run."""
+    tkr = ticker.upper()
+    for t in _read_all():
+        if t.closed or t.ticker.upper() != tkr:
+            continue
+        if source is None or t.source == source:
+            return True
+    return False
+
+
 def log_recommendation(ticket: TradeTicket, source: str = "analyst") -> ShadowTrade:
     """Snapshot a recommendation as a paper trade at the current price."""
     price = get_quote(ticket.ticker).price
