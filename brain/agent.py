@@ -108,7 +108,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "ticker": {"type": "string"},
-                "span": {"type": "string", "enum": ["1d", "1m", "3m", "6m", "1y"]},
+                "span": {"type": "string", "enum": ["1d", "1w", "1m", "3m", "6m", "1y"]},
             },
             "required": ["ticker"],
         },

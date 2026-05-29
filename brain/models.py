@@ -233,7 +233,7 @@ class ChartPoint(BaseModel):
 
 class StockChart(BaseModel):
     ticker: str
-    span: Literal["1d", "1m", "3m", "6m", "1y"] = "3m"
+    span: Literal["1d", "1w", "1m", "3m", "6m", "1y"] = "3m"
     points: list[ChartPoint] = Field(default_factory=list)
     latest: float = 0.0
     return_pct: float = 0.0

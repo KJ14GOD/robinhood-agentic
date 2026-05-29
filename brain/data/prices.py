@@ -14,7 +14,7 @@ import pandas as pd
 import yfinance as yf
 
 from .. import config
-from ..models import ChartPoint, StockChart
+from ..models import ChartPoint, Holding, StockChart
 
 # Quiet yfinance's noisy "possibly delisted" stderr logging — we handle empty
 # data gracefully (delisted/acquired holdings fall back to the broker's price).
@@ -81,6 +81,7 @@ import time as _time
 _QUOTE_CACHE: dict[str, tuple[float, Quote]] = {}
 _SIGNAL_CACHE: dict[str, tuple[float, TrendSignals]] = {}
 _SCREEN_CACHE: dict[str, tuple[float, list]] = {}
+_CHART_CACHE: dict[str, tuple[float, StockChart]] = {}
 
 
 def _fresh(hit: tuple[float, object] | None, ttl: int) -> bool:
@@ -97,11 +98,13 @@ def clear_caches(tickers: list[str] | None = None) -> None:
         _QUOTE_CACHE.clear()
         _SIGNAL_CACHE.clear()
         _SCREEN_CACHE.clear()
+        _CHART_CACHE.clear()
         return
     cleaned = {clean_ticker(t) for t in tickers}
     for t in cleaned:
         _QUOTE_CACHE.pop(t, None)
         _SIGNAL_CACHE.pop(t, None)
+        _CHART_CACHE.pop(t, None)
 
 
 def get_quote(ticker: str, refresh: bool = False) -> Quote:
@@ -296,11 +299,16 @@ def get_signals_many(tickers: list[str], refresh: bool = False,
 
 def get_chart(ticker: str, span: str = "3m", refresh: bool = False) -> StockChart:
     ticker = clean_ticker(ticker)
-    span = span if span in {"1d", "1m", "3m", "6m", "1y"} else "3m"
+    span = span if span in {"1d", "1w", "1m", "3m", "6m", "1y"} else "3m"
     if not ticker:
         return StockChart(ticker="", span=span)  # type: ignore[arg-type]
+    cache_key = f"{ticker}:{span}"
+    hit = _CHART_CACHE.get(cache_key)
+    if not refresh and _fresh(hit, config.QUOTE_TTL_SECONDS):
+        return hit[1]
     period, interval = {
         "1d": ("1d", "5m"),
+        "1w": ("5d", "15m"),
         "1m": ("1mo", "1d"),
         "3m": ("3mo", "1d"),
         "6m": ("6mo", "1d"),
@@ -318,4 +326,101 @@ def get_chart(ticker: str, span: str = "3m", refresh: bool = False) -> StockChar
     latest = points[-1].close if points else 0.0
     first = points[0].close if points else 0.0
     ret = ((latest - first) / first * 100.0) if first else 0.0
-    return StockChart(ticker=ticker, span=span, points=points, latest=latest, return_pct=ret)
+    chart = StockChart(ticker=ticker, span=span, points=points, latest=latest, return_pct=ret)
+    _CHART_CACHE[cache_key] = (_time.time(), chart)
+    return chart
+
+
+def get_portfolio_chart(
+    holdings: list[Holding],
+    cash: float = 0.0,
+    span: str = "3m",
+    refresh: bool = False,
+    target_latest: float = 0.0,
+) -> StockChart:
+    """Reconstruct an approximate portfolio value chart from current quantities.
+
+    This is not a broker statement history. It answers the product question the
+    UI needs right now: "how would the current book have moved across this
+    window?" A real DB-backed equity curve should replace this once snapshots
+    are persisted.
+    """
+    span = span if span in {"1d", "1w", "1m", "3m", "6m", "1y"} else "3m"
+    active = [h for h in holdings if h.quantity > 0]
+    if not active:
+        return StockChart(ticker="PORTFOLIO", span=span, source="portfolio holdings")
+
+    period, interval = {
+        "1d": ("1d", "5m"),
+        "1w": ("5d", "15m"),
+        "1m": ("1mo", "1d"),
+        "3m": ("3mo", "1d"),
+        "6m": ("6mo", "1d"),
+        "1y": ("1y", "1wk"),
+    }[span]
+    key = (
+        "PORTFOLIO:"
+        + span
+        + ":"
+        + ",".join(f"{h.ticker}:{h.quantity}" for h in active)
+        + f":{target_latest:.2f}"
+    )
+    hit = _CHART_CACHE.get(key)
+    if not refresh and _fresh(hit, config.QUOTE_TTL_SECONDS):
+        return hit[1]
+
+    tickers = [h.ticker for h in active]
+    qty = {h.ticker: h.quantity for h in active}
+    frames = []
+    try:
+        hist = yf.download(
+            tickers,
+            period=period,
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+    except Exception:  # noqa: BLE001
+        hist = pd.DataFrame()
+    if not hist.empty:
+        if isinstance(hist.columns, pd.MultiIndex):
+            closes = hist["Close"] if "Close" in hist.columns.get_level_values(0) else pd.DataFrame()
+            for ticker in tickers:
+                if ticker in closes:
+                    series = closes[ticker].dropna()
+                    if not series.empty:
+                        frames.append(series.rename(ticker) * qty[ticker])
+        elif "Close" in hist:
+            ticker = tickers[0]
+            series = hist["Close"].dropna()
+            if not series.empty:
+                frames.append(series.rename(ticker) * qty[ticker])
+
+    if not frames:
+        chart = StockChart(ticker="PORTFOLIO", span=span, source="portfolio holdings")
+        _CHART_CACHE[key] = (_time.time(), chart)
+        return chart
+
+    values = pd.concat(frames, axis=1).ffill().dropna(how="all").sum(axis=1) + cash
+    latest_raw = float(values.iloc[-1]) if not values.empty else 0.0
+    if target_latest > 0 and latest_raw > 0:
+        values = values * (target_latest / latest_raw)
+    points = [
+        ChartPoint(at=idx.isoformat(), close=float(value))
+        for idx, value in values.items()
+        if pd.notna(value)
+    ]
+    latest = points[-1].close if points else 0.0
+    first = points[0].close if points else 0.0
+    ret = ((latest - first) / first * 100.0) if first else 0.0
+    chart = StockChart(
+        ticker="PORTFOLIO",
+        span=span,
+        points=points,
+        latest=latest,
+        return_pct=ret,
+        source="current holdings reconstruction, anchored to broker equity",
+    )
+    _CHART_CACHE[key] = (_time.time(), chart)
+    return chart

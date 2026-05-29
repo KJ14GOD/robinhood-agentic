@@ -7,12 +7,18 @@ dashboard and agent can read it to keep context across sessions.
 from __future__ import annotations
 
 from . import config
+from .db import repository as db_repo
 from .models import Briefing, ResearchState, StockIdea, Thesis, TradeTicket, WatchItem, _now
 
 
 def load_state() -> ResearchState:
+    db_state = db_repo.load_research_state()
+    if db_state and (db_state.watchlist or db_state.theses or db_state.alerts or db_state.briefings):
+        return db_state
     if config.RESEARCH_STATE_PATH.exists():
-        return ResearchState.model_validate_json(config.RESEARCH_STATE_PATH.read_text())
+        state = ResearchState.model_validate_json(config.RESEARCH_STATE_PATH.read_text())
+        db_repo.save_research_state(state)
+        return state
     state = ResearchState()
     save_state(state)
     return state
@@ -21,6 +27,7 @@ def load_state() -> ResearchState:
 def save_state(state: ResearchState) -> ResearchState:
     state.updated_at = _now()
     config.RESEARCH_STATE_PATH.write_text(state.model_dump_json(indent=2))
+    db_repo.save_research_state(state)
     return state
 
 
@@ -28,6 +35,13 @@ def add_briefing(briefing: Briefing) -> ResearchState:
     state = load_state()
     state.briefings.append(briefing)
     state.briefings = state.briefings[-50:]
+    db_repo.save_research_event(
+        event_type="briefing",
+        severity="info",
+        title=briefing.title,
+        summary=briefing.summary,
+        source=f"briefing:{briefing.kind}",
+    )
     return save_state(state)
 
 
@@ -52,6 +66,22 @@ def update_from_ticket(ticket: TradeTicket) -> ResearchState:
         invalidation=ticket.risks,
         last_decision=ticket.decision_label,
     )
+    db_repo.upsert_ticker_research(
+        ticker=ticker,
+        action_label=ticket.decision_label,
+        thesis=ticket.thesis,
+        confidence=float(ticket.conviction),
+        risks=ticket.risks,
+        source="analyze",
+    )
+    db_repo.save_research_event(
+        event_type="ticker_research",
+        severity="info" if ticket.action in ("hold", "watch") else "action",
+        ticker=ticker,
+        title=f"{ticker} {ticket.decision_label}",
+        summary=ticket.thesis,
+        source="analyze",
+    )
     if ticket.action in ("buy", "add", "watch"):
         upsert_watch_item(
             ticker=ticker,
@@ -72,6 +102,14 @@ def add_discovery_ideas(ideas: list[StockIdea]) -> ResearchState:
             mode="volatile" if idea.risk_flavor == "volatile" else
             "stable" if idea.risk_flavor == "stable" else "balanced",
             state=state,
+        )
+        db_repo.save_research_event(
+            event_type="discovery",
+            severity="info",
+            ticker=idea.ticker.upper(),
+            title=f"{idea.ticker.upper()} added from discovery",
+            summary=idea.why_now,
+            source="discover",
         )
     return save_state(state)
 

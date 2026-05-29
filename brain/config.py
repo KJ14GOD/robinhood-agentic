@@ -19,6 +19,7 @@ BRAIN_EFFORT = os.environ.get("BRAIN_EFFORT", "high")  # low | medium | high | m
 
 # --- Portfolio ---
 PORTFOLIO_SOURCE = os.environ.get("PORTFOLIO_SOURCE", "manual").lower()
+DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATA_DIR / 'brain.db'}")
 PORTFOLIO_TTL_SECONDS = int(os.environ.get("PORTFOLIO_TTL_SECONDS", "30"))
 QUOTE_TTL_SECONDS = int(os.environ.get("QUOTE_TTL_SECONDS", "60"))
 SIGNAL_TTL_SECONDS = int(os.environ.get("SIGNAL_TTL_SECONDS", "900"))
@@ -39,6 +40,7 @@ PROFILE_PATH = DATA_DIR / "profile.json"
 SHADOW_PATH = DATA_DIR / "shadow_ledger.jsonl"
 HOLDINGS_CACHE = DATA_DIR / "holdings_manual.json"
 RESEARCH_STATE_PATH = DATA_DIR / "research_state.json"
+PORTFOLIO_SNAPSHOT_PATH = DATA_DIR / "portfolio_snapshot.json"
 DIGEST_DIR = DATA_DIR / "digests"
 DIGEST_DIR.mkdir(exist_ok=True)
 

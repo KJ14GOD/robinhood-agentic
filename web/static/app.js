@@ -26,41 +26,67 @@ const toast = (m) => { const t = $("#toast"); t.textContent = m; t.classList.rem
 const busy = (b, on) => { b.disabled = on; b.dataset.t = b.dataset.t || b.innerHTML; b.innerHTML = on ? '<span class="spin"></span>' : b.dataset.t; };
 
 let STATE = null;
+let SELECTED_CHART = "portfolio";
+let CHART_SPAN = "3m";
+const CHART_STORE = {};
+const CHART_CACHE = {};
+const PREFETCHING = new Set();
 
 // tabs
 $$(".tab").forEach((t) => t.addEventListener("click", () => {
   $$(".tab").forEach((x) => x.classList.remove("active"));
   $$(".panel").forEach((x) => x.classList.remove("active"));
   t.classList.add("active"); $("#" + t.dataset.tab).classList.add("active");
+  if (t.dataset.tab === "portfolio" && STATE) loadPortfolioChart();
 }));
 
 // ---------- state / header ----------
 async function loadState() {
   STATE = await api("state");
+  renderState();
+}
+
+function renderState() {
   $("#srcTag").textContent = STATE.source.toUpperCase();
   $("#totVal").textContent = money0(STATE.portfolio.total_value);
   const n = STATE.portfolio.holdings.length;
   const stamp = localTime(STATE.as_of || STATE.portfolio.as_of);
   const sync = STATE.sync_ok ? `updated ${stamp || "now"}` : `sync issue`;
   $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · buying power ${money0(STATE.portfolio.buying_power ?? STATE.portfolio.cash)} · ${sync}`;
+  renderStaleBanner();
   if (!STATE.sync_ok && STATE.sync_message) toast(STATE.sync_message);
   else if (STATE.portfolio.pricing_warning) console.warn(STATE.portfolio.pricing_warning);
   renderToday();
   renderHoldings(); renderProfile(); renderEditor(); renderResearchState();
+  if ($("#portfolio").classList.contains("active")) loadPortfolioChart();
+}
+
+function renderStaleBanner() {
+  const el = $("#staleBanner");
+  if (!el) return;
+  const r = STATE?.refresh;
+  if (r && r.stale) {
+    el.textContent = "⚠ " + r.message;
+    el.classList.remove("hidden");
+  } else {
+    el.classList.add("hidden");
+  }
+}
+
+async function refreshLive({ quiet = false } = {}) {
+  try {
+    const next = await api("refresh", {});
+    STATE = next;
+    renderState();
+    if (!quiet) toast(STATE.sync_ok ? "Live data refreshed" : "Refresh had a sync issue");
+  } catch (e) {
+    if (!quiet) toast("Live refresh failed");
+  }
 }
 
 $("#refreshAll").onclick = async (e) => {
   busy(e.target, true);
-  STATE = await api("refresh", {});
-  $("#srcTag").textContent = STATE.source.toUpperCase();
-  $("#totVal").textContent = money0(STATE.portfolio.total_value);
-  const n = STATE.portfolio.holdings.length;
-  const stamp = localTime(STATE.as_of || STATE.portfolio.as_of);
-  const sync = STATE.sync_ok ? `updated ${stamp || "now"}` : "sync issue";
-  $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · buying power ${money0(STATE.portfolio.buying_power ?? STATE.portfolio.cash)} · ${sync}`;
-  if (STATE.portfolio.pricing_warning) toast(STATE.portfolio.pricing_warning);
-  renderToday();
-  renderHoldings(); renderProfile(); renderEditor(); renderResearchState();
+  await refreshLive({ quiet: true });
   await loadScore();
   busy(e.target, false);
   toast(STATE.sync_ok ? "Live data refreshed" : "Refresh had a sync issue");
@@ -91,17 +117,191 @@ function renderHoldings() {
   const hs = STATE.portfolio.holdings;
   const maxw = Math.max(1, ...hs.map((h) => h.weight));
   $("#holdRows").innerHTML = hs.map((h) => `
-    <div class="hrow" onclick="analyze('${h.ticker}')">
+    <div class="hrow ${SELECTED_CHART === h.ticker ? "selected" : ""}" onclick="selectPortfolioChart('${h.ticker}')">
       <div><div class="sym">${h.ticker}</div><div class="sub2">${h.quantity}@$${h.current_price.toFixed(2)}</div></div>
       <div class="hbar"><i style="width:${(h.weight / maxw) * 100}%"></i></div>
       <div class="val">${money0(h.market_value)}<div class="sub2">${h.weight.toFixed(1)}%</div></div>
-      <div class="chg ${cls(h.unrealized_pct)}">${pct(h.unrealized_pct)}</div>
+      <div class="h-actions">
+        <div class="chg ${cls(h.unrealized_pct)}">${pct(h.unrealized_pct)}</div>
+        <button class="ghost mini" onclick="event.stopPropagation(); analyze('${h.ticker}')">Analyze</button>
+      </div>
     </div>`).join("") || `<p class="muted">No holdings yet.${STATE.source === "manual" ? " Add some below." : ""}</p>`;
   $("#editor").classList.toggle("hidden", STATE.source !== "manual");
   $("#holdNote").textContent = !STATE.sync_ok ? STATE.sync_message :
     STATE.source === "manual" ? "" :
     `read-only · ${STATE.portfolio.pricing_source || "Robinhood"}`;
 }
+
+function svgPath(points, w = 760, h = 220, pad = 10) {
+  const pts = (points || []).map((p) => p.close).filter((n) => Number.isFinite(n));
+  if (pts.length < 2) return { path: "", min: 0, max: 0, coords: [] };
+  const min = Math.min(...pts), max = Math.max(...pts), range = max - min || 1;
+  const coords = pts.map((v, i) => {
+    const x = pad + (i / (pts.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return { x, y, close: v, at: points[i]?.at || "" };
+  });
+  const path = coords.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  return { path, min, max, coords };
+}
+
+function chartTime(s) {
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleString([], sameYear
+    ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
+    : { year: "numeric", month: "short", day: "numeric" });
+}
+
+function chartBlock(chart, opts = {}) {
+  const w = opts.width || 760, h = opts.height || 220;
+  const { path, min, max, coords } = svgPath(chart.points || [], w, h);
+  if (!path) return `<div class="empty-chart">No chart data available for ${esc(chart.ticker || "this asset")}.</div>`;
+  const up = (chart.return_pct || 0) >= 0;
+  const latest = chart.latest || 0;
+  const first = (chart.points || [])[0]?.close || 0;
+  const range = max - min || 1;
+  const baseY = first ? (h - 10 - ((first - min) / range) * (h - 20)).toFixed(1) : (h / 2).toFixed(1);
+  const id = "chart_" + Math.random().toString(36).slice(2);
+  CHART_STORE[id] = { chart, coords, w, h, first };
+  return `<div class="chart-frame" data-chart-id="${id}">
+    <div class="chart-price"><strong>${money(latest)}</strong><span class="${up ? "pos" : "neg"}">${pct(chart.return_pct || 0)}</span><em>${chartTime((chart.points || []).at(-1)?.at)}</em></div>
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="${esc(chart.ticker)} chart">
+      <path d="M10,${baseY} L${w - 10},${baseY}" class="baseline"/>
+      <path d="${path}" fill="none" stroke="${up ? "#10a348" : "#d9432f"}" stroke-width="${opts.stroke || 3}" vector-effect="non-scaling-stroke"/>
+      <line class="crosshair-x hidden" y1="0" y2="${h}"></line>
+      <circle class="crosshair-dot hidden" r="4"></circle>
+      <rect class="chart-hit" x="0" y="0" width="${w}" height="${h}"></rect>
+    </svg>
+    <div class="chart-tooltip hidden"></div>
+    <div class="sub2">${esc(chart.source || "chart")}</div>
+  </div>`;
+}
+
+function chartHover(event, svg) {
+  const frame = svg.closest(".chart-frame");
+  const stored = CHART_STORE[frame?.dataset.chartId];
+  if (!stored || !stored.coords.length) return;
+  const box = svg.getBoundingClientRect();
+  const x = ((event.clientX - box.left) / box.width) * stored.w;
+  let best = stored.coords[0];
+  for (const p of stored.coords) if (Math.abs(p.x - x) < Math.abs(best.x - x)) best = p;
+  const line = svg.querySelector(".crosshair-x");
+  const dot = svg.querySelector(".crosshair-dot");
+  line.setAttribute("x1", best.x); line.setAttribute("x2", best.x);
+  dot.setAttribute("cx", best.x); dot.setAttribute("cy", best.y);
+  line.classList.remove("hidden"); dot.classList.remove("hidden");
+  const ret = stored.first ? ((best.close - stored.first) / stored.first * 100) : 0;
+  const price = frame.querySelector(".chart-price");
+  price.querySelector("strong").textContent = money(best.close);
+  price.querySelector("span").textContent = pct(ret);
+  price.querySelector("span").className = ret >= 0 ? "pos" : "neg";
+  price.querySelector("em").textContent = chartTime(best.at);
+  const tip = frame.querySelector(".chart-tooltip");
+  tip.innerHTML = `<strong>${money(best.close)}</strong><span>${chartTime(best.at)}</span>`;
+  tip.style.left = `${Math.min(Math.max((best.x / stored.w) * 100, 6), 94)}%`;
+  tip.style.top = `${Math.max(best.y - 34, 12)}px`;
+  tip.classList.remove("hidden");
+}
+function chartLeave(svg) {
+  const frame = svg.closest(".chart-frame");
+  const stored = CHART_STORE[frame?.dataset.chartId];
+  if (!stored) return;
+  svg.querySelector(".crosshair-x")?.classList.add("hidden");
+  svg.querySelector(".crosshair-dot")?.classList.add("hidden");
+  frame.querySelector(".chart-tooltip")?.classList.add("hidden");
+  const chart = stored.chart;
+  const up = (chart.return_pct || 0) >= 0;
+  const price = frame.querySelector(".chart-price");
+  price.querySelector("strong").textContent = money(chart.latest || 0);
+  price.querySelector("span").textContent = pct(chart.return_pct || 0);
+  price.querySelector("span").className = up ? "pos" : "neg";
+  price.querySelector("em").textContent = chartTime((chart.points || []).at(-1)?.at);
+}
+
+function bindChartInteractions() {
+  const svg = $("#portfolioChart svg");
+  if (!svg) return;
+  const move = (event) => chartHover(event.touches ? event.touches[0] : event, svg);
+  svg.addEventListener("mousemove", move);
+  svg.addEventListener("touchmove", (event) => { event.preventDefault(); move(event); }, { passive: false });
+  svg.addEventListener("mouseleave", () => chartLeave(svg));
+  svg.addEventListener("touchend", () => chartLeave(svg));
+}
+
+async function loadPortfolioChart() {
+  const box = $("#portfolioChart");
+  if (!box || !STATE) return;
+  const ticker = SELECTED_CHART || "portfolio";
+  const label = ticker === "portfolio" ? "Portfolio" : ticker;
+  const cacheKey = `${ticker}:${CHART_SPAN}`;
+  $("#chartTitle").textContent = label;
+  $("#resetChart").classList.toggle("hidden", ticker === "portfolio");
+  if (CHART_CACHE[cacheKey]) {
+    const chart = CHART_CACHE[cacheKey];
+    const retClass = (chart.return_pct || 0) >= 0 ? "pos" : "neg";
+    $("#chartMeta").innerHTML = `<span class="${retClass}">${pct(chart.return_pct || 0)}</span> over ${esc(CHART_SPAN.toUpperCase())}`;
+    box.classList.remove("loading", "refreshing");
+    box.innerHTML = chartBlock(chart);
+    bindChartInteractions();
+    prefetchChartSet(ticker);
+    return;
+  }
+  $("#chartMeta").textContent = "Loading chart...";
+  if (box.querySelector("svg")) box.classList.add("refreshing");
+  else {
+    box.innerHTML = `<span class="spin"></span>`;
+    box.classList.add("loading");
+  }
+  try {
+    const r = await fetch(`/api/chart/${encodeURIComponent(ticker)}?span=${encodeURIComponent(CHART_SPAN)}`);
+    const chart = await r.json();
+    CHART_CACHE[cacheKey] = chart;
+    box.classList.remove("loading", "refreshing");
+    const retClass = (chart.return_pct || 0) >= 0 ? "pos" : "neg";
+    $("#chartMeta").innerHTML = `<span class="${retClass}">${pct(chart.return_pct || 0)}</span> over ${esc(CHART_SPAN.toUpperCase())}`;
+    box.innerHTML = chartBlock(chart);
+    bindChartInteractions();
+    prefetchChartSet(ticker);
+  } catch (e) {
+    box.classList.remove("loading", "refreshing");
+    $("#chartMeta").textContent = "Chart failed to load";
+    box.innerHTML = `<div class="empty-chart">Chart request failed.</div>`;
+  }
+}
+
+function prefetchChartSet(ticker) {
+  ["1d", "1w", "1m", "3m", "6m", "1y"].forEach((span) => {
+    const key = `${ticker}:${span}`;
+    if (span === CHART_SPAN || CHART_CACHE[key] || PREFETCHING.has(key)) return;
+    PREFETCHING.add(key);
+    fetch(`/api/chart/${encodeURIComponent(ticker)}?span=${encodeURIComponent(span)}`)
+      .then((r) => r.json())
+      .then((chart) => { if (chart && chart.points) CHART_CACHE[key] = chart; })
+      .catch(() => {})
+      .finally(() => PREFETCHING.delete(key));
+  });
+}
+
+function selectPortfolioChart(ticker) {
+  const next = ticker || "portfolio";
+  // Clicking the already-selected holding again jumps back to the full portfolio.
+  SELECTED_CHART = (next !== "portfolio" && SELECTED_CHART === next) ? "portfolio" : next;
+  renderHoldings();
+  loadPortfolioChart();
+}
+window.selectPortfolioChart = selectPortfolioChart;
+
+$("#chartTitle").onclick = () => selectPortfolioChart("portfolio");
+$("#resetChart").onclick = () => selectPortfolioChart("portfolio");
+$$('#chartSpans button').forEach((btn) => btn.addEventListener("click", () => {
+  $$("#chartSpans button").forEach((x) => x.classList.remove("active"));
+  btn.classList.add("active");
+  CHART_SPAN = btn.dataset.span;
+  loadPortfolioChart();
+}));
 
 function renderResearchState() {
   const box = $("#watchlist");
@@ -192,14 +392,29 @@ $("#saveHold").onclick = async (e) => {
 
 // ---------- analyze (modal) ----------
 async function analyze(ticker) {
-  showModal(`<h2>${ticker}</h2><div class="loading"><span class="spin"></span> Analyzing…</div>`);
+  showModal(`<h2>${ticker}</h2><div class="loading"><span class="spin"></span> Loading research…</div>`);
   const t = await api("analyze", { ticker });
-  showModal(`<div class="card" style="border:none;box-shadow:none;padding:0">${ticketHTML(t)}
-    <div class="fb"><button class="yes" onclick="fb('${ticker}',true)">👍 Good idea</button>
-    <button class="no" onclick="fb('${ticker}',false)">👎 Pass</button></div>
-    <p class="muted" style="margin-top:10px;font-size:12px">Logged to shadow mode. Execute manually if you act on it.</p></div>`);
+  showAnalysisModal(ticker, t);
 }
 window.analyze = analyze;
+async function deepAnalyze(ticker, btn) {
+  busy(btn, true);
+  const t = await api("analyze", { ticker, refresh: true });
+  showAnalysisModal(ticker, t);
+}
+window.deepAnalyze = deepAnalyze;
+function showAnalysisModal(ticker, t) {
+  const meta = t.cached
+    ? `Cached research${t.refreshed_at ? ` · ${new Date(t.refreshed_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
+    : "Fresh LLM research · saved to DB";
+  showModal(`<div class="card" style="border:none;box-shadow:none;padding:0">${ticketHTML(t)}
+    <div class="fb">
+      <button class="yes" onclick="fb('${ticker}',true)">Good idea</button>
+      <button class="no" onclick="fb('${ticker}',false)">Pass</button>
+      <button class="ghost" onclick="deepAnalyze('${ticker}', this)">Deep refresh</button>
+    </div>
+    <p class="muted" style="margin-top:10px;font-size:12px">${esc(meta)}. Execute manually if you act on it.</p></div>`);
+}
 function ticketHTML(t) {
   return `<div class="head"><span class="tkr">${t.ticker}</span><span class="pill ${t.action}">${esc(t.decision_label || t.action)}</span></div>
     <div class="conv">conviction ${t.conviction}/10</div><div class="bar"><i style="width:${t.conviction * 10}%"></i></div>
@@ -260,15 +475,9 @@ $("#runScore").onclick = loadScore;
 // ---------- agentic chat (streaming) ----------
 const CHAT_HISTORY = [];
 function chartHTML(chart) {
-  const pts = (chart.points || []).map((p) => p.close).filter((n) => Number.isFinite(n));
-  if (pts.length < 2) return "";
-  const w = 520, h = 96, pad = 6;
-  const min = Math.min(...pts), max = Math.max(...pts), range = max - min || 1;
-  const path = pts.map((v, i) => {
-    const x = pad + (i / (pts.length - 1)) * (w - pad * 2);
-    const y = h - pad - ((v - min) / range) * (h - pad * 2);
-    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
+  const w = 520, h = 96;
+  const { path } = svgPath(chart.points || [], w, h, 6);
+  if (!path) return "";
   const up = (chart.return_pct || 0) >= 0;
   return `<div class="chat-chart">
     <div class="ct"><strong>${esc(chart.ticker)} ${esc(chart.span)}</strong><span class="${up ? "pos" : "neg"}">${pct(chart.return_pct || 0)}</span></div>
@@ -362,5 +571,9 @@ window.closeModal = closeModal;
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 
 // ---------- boot ----------
-loadState().then(() => { loadFeed(); loadScore(); });
+loadState().then(() => {
+  loadScore();
+  setTimeout(() => refreshLive({ quiet: true }), 250);
+  setTimeout(loadFeed, 800);
+});
 setInterval(loadState, 60000);

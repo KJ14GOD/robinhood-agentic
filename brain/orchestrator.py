@@ -5,13 +5,16 @@ single import surface for everything above the engine layer.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Iterator
 
 from . import agent, llm, profile_store, research_state, shadow
 from .data.news import clear_news_cache
-from .data.prices import clear_caches
+from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
+from .data import robinhood_charts
+from .db import repository as db_repo
 from .engines import analyst, briefing, discovery, findings, guardian
-from .models import Briefing, DiscoveryResult, GuardianDigest, Portfolio, ResearchState, RiskProfile, TradeTicket
+from .models import Briefing, ChartPoint, DiscoveryResult, GuardianDigest, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
 from .portfolio import clear_portfolio_cache, get_portfolio
 
 
@@ -50,6 +53,12 @@ def refresh_live_state() -> Portfolio:
     return get_portfolio(refresh=True)
 
 
+def init_database() -> None:
+    from .db.session import init_db
+
+    init_db()
+
+
 def get_research_state() -> ResearchState:
     return research_state.load_state()
 
@@ -60,9 +69,82 @@ def create_briefing(kind: str = "manual") -> Briefing:
     return briefing.generate(kind, get_portfolio(refresh=True), get_profile())
 
 
+def _anchor_to_now(chart: StockChart, current_price: float) -> StockChart:
+    """Extend a chart so its rightmost point is the live price at this moment.
+
+    Charts arrive from two providers (Robinhood for stocks, yfinance for the
+    portfolio reconstruction) and at coarse intervals (weekly bars for 1Y,
+    daily for 6M). That left charts ending at inconsistent wall-clock times and
+    stopping days short of today. Pinning a live "now" point to every chart —
+    the way brokerages draw the line out to the current quote — keeps them
+    consistent and current regardless of source or interval.
+    """
+    if current_price <= 0 or not chart.points:
+        return chart
+    now = datetime.now().astimezone().replace(microsecond=0).isoformat()
+    points = list(chart.points) + [ChartPoint(at=now, close=current_price)]
+    first = points[0].close
+    ret = ((current_price - first) / first * 100.0) if first else 0.0
+    return chart.model_copy(update={"points": points, "latest": current_price, "return_pct": ret})
+
+
+def stock_chart(ticker: str, span: str = "3m", refresh: bool = False) -> StockChart:
+    rh_chart = robinhood_charts.get_stock_chart(ticker, span=span)
+    chart = rh_chart if rh_chart.points else get_chart(ticker, span=span, refresh=refresh)
+    quote = get_quote(ticker, refresh=refresh)
+    return _anchor_to_now(chart, quote.price if quote.ok else 0.0)
+
+
+def portfolio_chart(span: str = "3m", refresh: bool = False) -> StockChart:
+    pf = get_portfolio(refresh=refresh)
+    rh_chart = robinhood_charts.get_portfolio_chart(span=span)
+    if rh_chart.points:
+        chart = rh_chart
+    else:
+        chart = get_portfolio_chart(
+            pf.holdings,
+            cash=pf.cash,
+            span=span,
+            refresh=refresh,
+            target_latest=pf.total_value,
+        )
+    return _anchor_to_now(chart, pf.total_value)
+
+
 # --- engines ---------------------------------------------------------------- #
 def analyze(ticker: str) -> TradeTicket:
     return analyst.analyze(ticker, get_profile())
+
+
+def cached_analysis(ticker: str) -> dict | None:
+    row = db_repo.get_ticker_research(ticker)
+    if not row:
+        return None
+    label = row["action_label"]
+    action = {
+        "BUY CANDIDATE": "buy",
+        "WATCHLIST": "watch",
+        "WAIT FOR PULLBACK": "watch",
+        "HOLD": "hold",
+        "TRIM": "trim",
+        "EXIT REVIEW": "sell",
+        "REJECT": "watch",
+        "DO NOTHING": "hold",
+    }.get(label, "watch")
+    return {
+        "ticker": row["ticker"],
+        "action": action,
+        "decision_label": label,
+        "conviction": max(1, min(10, int(round(row["confidence"] or 1)))),
+        "thesis": row["thesis"],
+        "catalyst": row["bull_case"] or "Cached research. Run Deep refresh for a fresh catalyst check.",
+        "risks": row["risks"] or row["bear_case"],
+        "suggested_size_pct": 0.0,
+        "fits_profile_because": "",
+        "cached": True,
+        "source": row["source"],
+        "refreshed_at": row["refreshed_at"],
+    }
 
 
 def discover(flavor: str = "any", top_n: int = 5) -> DiscoveryResult:

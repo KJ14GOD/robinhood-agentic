@@ -6,12 +6,14 @@ Then open http://127.0.0.1:8000
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
 import json
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,6 +25,35 @@ from brain import config
 
 app = FastAPI(title="Stock Research Brain")
 STATIC = Path(__file__).parent / "static"
+logger = logging.getLogger("brain.refresh")
+
+# Heartbeat for the background refresh loop. The dashboard's data freshness
+# hinges on this loop running — if it dies, the read-through cache happily
+# serves stale snapshots with no error. So we track when it last succeeded
+# and surface a "stale" flag the dashboard turns into a visible banner.
+_REFRESH = {"last_ok": None, "last_error": None, "started": None}
+
+
+def _refresh_health() -> dict:
+    """Is live data actually being refreshed? stale=True means the loop has
+    gone quiet for several cycles (crashed or stuck), so on-screen numbers
+    may be old."""
+    if config.AUTO_REFRESH_SECONDS <= 0:
+        return {"stale": False, "message": ""}  # auto-refresh intentionally off
+    ref = _REFRESH["last_ok"] or _REFRESH["started"]
+    if ref is None:
+        return {"stale": False, "message": ""}  # not started yet
+    age = time.time() - ref
+    if age <= config.AUTO_REFRESH_SECONDS * 3:  # one missed cycle is noise
+        return {"stale": False, "message": ""}
+    mins = max(1, int(age // 60))
+    if _REFRESH["last_ok"]:
+        msg = f"Live data hasn't refreshed in {mins} min — background updater looks down"
+    else:
+        msg = f"Live data has never refreshed since startup ({mins} min) — background updater looks down"
+    if _REFRESH["last_error"]:
+        msg += f" ({_REFRESH['last_error']})"
+    return {"stale": True, "message": msg}
 
 
 # ----- request bodies ----- #
@@ -33,6 +64,7 @@ class ChatBody(BaseModel):
 
 class AnalyzeBody(BaseModel):
     ticker: str
+    refresh: bool = False
 
 
 class DiscoverBody(BaseModel):
@@ -63,6 +95,7 @@ def _state(pf=None):
         "as_of": pf.as_of,
         "sync_ok": pf.sync_ok,
         "sync_message": pf.sync_message,
+        "refresh": _refresh_health(),
         "profile": brain.get_profile().model_dump(),
         "research": brain.get_research_state().model_dump(),
         "portfolio": {
@@ -130,7 +163,13 @@ def chat_stream(body: ChatBody):
 
 @app.post("/api/analyze")
 def analyze(body: AnalyzeBody):
-    return brain.analyze(body.ticker).model_dump()
+    if not body.refresh:
+        cached = brain.cached_analysis(body.ticker)
+        if cached:
+            return cached
+    out = brain.analyze(body.ticker).model_dump()
+    out["cached"] = False
+    return out
 
 
 @app.post("/api/discover")
@@ -153,6 +192,13 @@ def briefing(body: BriefingBody):
     return brain.create_briefing(body.kind).model_dump()
 
 
+@app.get("/api/chart/{ticker}")
+def chart(ticker: str, span: str = Query("3m", pattern="^(1d|1w|1m|3m|6m|1y)$")):
+    if ticker.lower() in {"portfolio", "total", "account"}:
+        return brain.portfolio_chart(span=span).model_dump()
+    return brain.stock_chart(ticker, span=span).model_dump()
+
+
 @app.get("/api/scoreboard")
 def scoreboard():
     return brain.scoreboard()
@@ -172,12 +218,15 @@ def learn():
 async def _refresh_loop() -> None:
     """Keep broker/price/shadow data warm without spending LLM tokens."""
     while True:
-        await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
         try:
             await asyncio.to_thread(brain.refresh_live_state)
             await asyncio.to_thread(brain.scoreboard, True)
-        except Exception:
-            pass
+            _REFRESH["last_ok"] = time.time()
+            _REFRESH["last_error"] = None
+        except Exception as e:  # noqa: BLE001
+            _REFRESH["last_error"] = str(e)
+            logger.warning("background refresh failed: %s", e)
+        await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
 
 
 def _briefing_exists_today(kind: str) -> bool:
@@ -211,7 +260,12 @@ async def _briefing_loop() -> None:
 
 @app.on_event("startup")
 async def start_background_refresh() -> None:
+    try:
+        brain.init_database()
+    except Exception:
+        pass
     if config.AUTO_REFRESH_SECONDS > 0:
+        _REFRESH["started"] = time.time()
         asyncio.create_task(_refresh_loop())
     if config.AUTO_BRIEFINGS:
         asyncio.create_task(_briefing_loop())

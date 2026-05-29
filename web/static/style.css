@@ -26,6 +26,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;padding
 .headval .big{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1}
 .headval .chg{font-size:14px;font-weight:600;margin-top:4px}
 .headval .mini{margin-top:8px;padding:6px 12px;font-size:12px}
+.ghost.mini{padding:5px 10px;font-size:11px}
 
 /* nav */
 nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px}
@@ -70,15 +71,46 @@ input,select,textarea{background:#fff;border:1px solid var(--line);color:var(--t
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--txt)}
 
 /* portfolio list (RH style) */
+.portfolio-chart{background:#050605;color:#fff;border:1px solid #151815;border-radius:16px;padding:20px 20px 14px;box-shadow:var(--shadow);margin-bottom:22px}
+.portfolio-chart h2{color:#fff;font-size:28px;letter-spacing:0}
+.portfolio-chart .sub{color:#8f9690;margin-bottom:0}
+#chartTitle{cursor:pointer}
+.chart-title-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.chart-reset{border:1px solid #29312b;background:#101310;color:#d7ddd8;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:750;cursor:pointer}
+.chart-reset:hover{border-color:#5dde4d;color:#5dde4d}
+.seg{display:flex;gap:14px;background:transparent;border:none;border-radius:0;padding:0}
+.seg button{border:none;background:transparent;color:#868e88;border-radius:0;padding:8px 0 6px;font-size:12px;font-weight:800;cursor:pointer;border-bottom:2px solid transparent}
+.seg button:hover{color:#d8ddd9}
+.seg button.active{background:transparent;color:#5dde4d;box-shadow:none;border-bottom-color:#5dde4d}
+.chart-large{height:308px;position:relative;color:#8f9690;font-size:14px;padding-top:8px}
+.chart-large.loading{display:flex;align-items:center;justify-content:center}
+.chart-large.refreshing::after{content:"";position:absolute;right:0;top:8px;width:8px;height:8px;border-radius:50%;background:#5dde4d;box-shadow:0 0 0 4px rgba(93,222,77,.14)}
+.chart-frame{height:100%}
+.chart-large svg{display:block;width:100%;height:226px;margin-top:14px}
+.chart-large .baseline{fill:none;stroke:#d7dbd8;stroke-width:1.5;stroke-dasharray:1 7;opacity:.8;vector-effect:non-scaling-stroke}
+.chart-large .crosshair-x{stroke:#7d847f;stroke-width:1;opacity:.75;vector-effect:non-scaling-stroke}
+.chart-large .crosshair-dot{fill:#5dde4d;stroke:#050605;stroke-width:2;vector-effect:non-scaling-stroke}
+.chart-large .chart-hit{fill:transparent;cursor:crosshair}
+.chart-price{display:flex;align-items:baseline;gap:12px;margin-top:2px}
+.chart-price strong{font-size:30px;line-height:1;font-weight:750;letter-spacing:0;color:#fff;font-variant-numeric:tabular-nums}
+.chart-price span{font-size:13px;font-weight:800}
+.chart-price em{font-style:normal;font-family:var(--mono);font-size:12px;color:#8f9690}
+.chart-tooltip{position:absolute;transform:translateX(-50%);background:#151915;color:#fff;border:1px solid #2c342e;border-radius:8px;padding:6px 8px;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:2;white-space:nowrap}
+.chart-tooltip strong{display:block;font-size:12px}
+.chart-tooltip span{display:block;font-family:var(--mono);font-size:10px;color:#9aa39c;margin-top:1px}
+.empty-chart{display:flex;align-items:center;justify-content:center;height:240px;color:#8f9690;border:1px dashed #2d332f;border-radius:12px;background:#090a09}
+.holdings-head{margin-top:4px}
 .holdlist{margin-top:8px}
 .hrow{display:grid;grid-template-columns:1.4fr 2fr 1fr 1fr;align-items:center;gap:14px;
   padding:15px 4px;border-bottom:1px solid var(--line2);cursor:pointer;transition:background .12s}
 .hrow:hover{background:var(--raised)}
+.hrow.selected{background:#f0faf2}
 .hrow .sym{font-weight:700;font-size:15px}
 .hbar{height:6px;background:var(--line);border-radius:6px;overflow:hidden}
 .hbar i{display:block;height:100%;background:var(--green);border-radius:6px}
 .hrow .val{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 .hrow .chg{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;font-size:14px}
+.h-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
 
 .editor{margin-top:30px;background:var(--raised);border-radius:16px;padding:20px}
 .editrow{display:flex;gap:8px;margin-bottom:8px}
@@ -185,8 +217,17 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
   header{align-items:flex-start}
   .signal-strip{grid-template-columns:1fr}
   nav{gap:18px;overflow-x:auto}
+  .portfolio-chart{padding:14px}
+  .seg{width:100%;justify-content:space-between}
+  .seg button{flex:1;padding:7px 6px}
   .hrow{grid-template-columns:1fr;gap:7px}
   .hrow .val,.hrow .chg{text-align:left}
+  .h-actions{justify-content:space-between}
   .form{grid-template-columns:1fr}
   .field.full{grid-column:auto}
 }
+
+/* background-refresh-down warning */
+.stale-banner{margin:8px 0 0;padding:9px 14px;border-radius:8px;
+  background:#fff4e5;border:1px solid var(--amber);color:var(--amber);
+  font-size:13px;font-weight:600}
