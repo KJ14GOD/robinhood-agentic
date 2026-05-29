@@ -231,12 +231,17 @@ async def _refresh_loop() -> None:
         try:
             await asyncio.to_thread(brain.refresh_live_state)
             await asyncio.to_thread(brain.scoreboard, True)
-            await asyncio.to_thread(brain.run_monitors)  # cheap, no-LLM event scan
             _REFRESH["last_ok"] = time.time()
             _REFRESH["last_error"] = None
         except Exception as e:  # noqa: BLE001
             _REFRESH["last_error"] = str(e)
             logger.warning("background refresh failed: %s", e)
+        # Monitors run in their own guard: a detector failure must not mark the
+        # whole live refresh as stale (prices already updated above).
+        try:
+            await asyncio.to_thread(brain.run_monitors)  # cheap, no-LLM event scan
+        except Exception as e:  # noqa: BLE001
+            logger.warning("monitor scan failed: %s", e)
         await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
 
 

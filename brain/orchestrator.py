@@ -48,7 +48,7 @@ def portfolio(refresh: bool = False) -> Portfolio:
 def refresh_live_state() -> Portfolio:
     """Force a read-through of market data and broker/manual portfolio state."""
     clear_portfolio_cache()
-    clear_caches()
+    clear_caches(include_signals=False)  # keep daily signal/screen caches warm; only live prices need clearing each cycle
     clear_news_cache()
     return get_portfolio(refresh=True)
 

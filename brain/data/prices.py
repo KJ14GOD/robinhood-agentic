@@ -88,17 +88,24 @@ def _fresh(hit: tuple[float, object] | None, ttl: int) -> bool:
     return bool(hit and _time.time() - hit[0] < ttl)
 
 
-def clear_caches(tickers: list[str] | None = None) -> None:
+def clear_caches(tickers: list[str] | None = None, include_signals: bool = True) -> None:
     """Force the next read to hit the data providers.
 
     Use this when the user clicks refresh, when the dashboard background loop
     runs, or after Robinhood positions change.
+
+    `include_signals=False` keeps the trend-signal and universe-screen caches
+    warm. Those are *daily* indicators (200d MA, RSI, momentum), so the 2-minute
+    refresh loop should not wipe them every cycle — doing so forces a full
+    yfinance re-download per holding every 2 min for data that only moves once a
+    day. Live quotes/charts are still cleared so dashboard prices stay current.
     """
     if tickers is None:
         _QUOTE_CACHE.clear()
-        _SIGNAL_CACHE.clear()
-        _SCREEN_CACHE.clear()
         _CHART_CACHE.clear()
+        if include_signals:
+            _SIGNAL_CACHE.clear()
+            _SCREEN_CACHE.clear()
         return
     cleaned = {clean_ticker(t) for t in tickers}
     for t in cleaned:
