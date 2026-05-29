@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Brain · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=3" />
+<link rel="stylesheet" href="/static/style.css?v=7" />
 </head>
 <body>
 <div id="app">
@@ -22,6 +22,7 @@
   <nav>
     <button class="tab active" data-tab="brain">Brain</button>
     <button class="tab" data-tab="portfolio">Portfolio</button>
+    <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="discover">Discover</button>
     <button class="tab" data-tab="digest">Digest</button>
     <button class="tab" data-tab="shadow">Shadow</button>
@@ -42,11 +43,6 @@
           </div>
           <div class="signal-strip" id="todayMetrics"></div>
           <div class="feed" id="feed"><div class="loading"><span class="spin"></span> Scanning your portfolio and the market...</div></div>
-
-          <div class="section-head">
-            <h3>Research memory</h3>
-          </div>
-          <div id="watchlist" class="cards compact"></div>
 
           <div class="section-head">
             <h3>Briefing inbox</h3>
@@ -110,6 +106,15 @@
       </div>
     </section>
 
+    <!-- MEMORY: the brain's accumulated research -->
+    <section id="memory" class="panel">
+      <div class="mem-head">
+        <h2>Research memory</h2>
+        <p class="sub" id="memSub">What the brain has concluded and is still tracking — its reasoning, recalled instantly.</p>
+      </div>
+      <div id="memBody"></div>
+    </section>
+
     <!-- DISCOVER -->
     <section id="discover" class="panel">
       <div class="row between">
@@ -157,6 +162,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

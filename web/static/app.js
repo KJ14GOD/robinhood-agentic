@@ -38,6 +38,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   $$(".panel").forEach((x) => x.classList.remove("active"));
   t.classList.add("active"); $("#" + t.dataset.tab).classList.add("active");
   if (t.dataset.tab === "portfolio" && STATE) loadPortfolioChart();
+  if (t.dataset.tab === "memory" && STATE) renderMemory();
 }));
 
 // ---------- state / header ----------
@@ -57,8 +58,10 @@ function renderState() {
   if (!STATE.sync_ok && STATE.sync_message) toast(STATE.sync_message);
   else if (STATE.portfolio.pricing_warning) console.warn(STATE.portfolio.pricing_warning);
   renderToday();
-  renderHoldings(); renderProfile(); renderEditor(); renderResearchState();
+  renderHoldings(); renderProfile(); renderEditor();
+  renderBriefings((STATE.research || {}).briefings || []);
   if ($("#portfolio").classList.contains("active")) loadPortfolioChart();
+  if ($("#memory").classList.contains("active")) renderMemory();
 }
 
 function renderStaleBanner() {
@@ -303,23 +306,103 @@ $$('#chartSpans button').forEach((btn) => btn.addEventListener("click", () => {
   loadPortfolioChart();
 }));
 
-function renderResearchState() {
-  const box = $("#watchlist");
-  if (!box) return;
+// ---------- Research Memory tab (Dossier: master / detail) ----------
+let MEM_SELECTED = null;
+
+function memItems() {
   const research = STATE.research || {};
-  const watch = research.watchlist || [];
   const theses = research.theses || {};
-  box.innerHTML = watch.length ? watch.slice(-6).reverse().map((x) => {
-    const th = theses[x.ticker];
-    return `<div class="card">
-      <div class="head"><span class="tkr" onclick="analyze('${x.ticker}')">${x.ticker}</span><span class="pill ${x.mode}">${x.mode}</span></div>
-      <p>${esc(x.reason || (th && th.thesis) || "No thesis stored yet.")}</p>
-      ${th ? `<span class="lbl">Last decision</span><p>${esc(th.last_decision)} · ${esc(th.status)}</p>` : ""}
-      ${x.max_allocation_pct ? `<span class="lbl">Max size</span><p>${x.max_allocation_pct}%</p>` : ""}
-    </div>`;
-  }).join("") : `<p class="muted">No watchlist memory yet. Run Discover or analyze a ticker.</p>`;
-  renderBriefings(research.briefings || []);
+  return (research.watchlist || []).slice().reverse().map((x) => ({
+    ...x,
+    mode: x.mode || "balanced",
+    th: theses[x.ticker] || {},
+  }));
 }
+
+function callShort(it) {
+  return esc(((it.th.last_decision || "watchlist") + "").split(" ")[0].toLowerCase());
+}
+
+// The shared "case file" — used by Dossier (right pane) and Ledger (inline).
+function memDetail(it) {
+  const th = it.th;
+  const reason = esc(it.reason || th.thesis || "No thesis stored yet.");
+  const breaks = th.invalidation ? esc(th.invalidation) : "";
+  const sup = (th.strengthens || []).map((s) => `<li>${esc(s)}</li>`).join("");
+  const wk = (th.weakens || []).map((s) => `<li>${esc(s)}</li>`).join("");
+  const stat = (th.status || "active").toLowerCase();
+  const meta = [
+    ["Conviction", it.mode],
+    ["Last call", (th.last_decision || "WATCHLIST").toLowerCase()],
+    it.max_allocation_pct ? ["Max size", it.max_allocation_pct + "%"] : null,
+    it.target_entry ? ["Target entry", "$" + (+it.target_entry).toFixed(2)] : null,
+    it.added_at ? ["First tracked", (it.added_at || "").slice(0, 10)] : null,
+  ].filter(Boolean);
+  return `
+    <div class="dos-h">
+      <div class="dos-h-l">
+        <span class="wl-dot ${it.mode}"></span>
+        <h3>${esc(it.ticker)}</h3>
+        <span class="dos-status ${stat}">${esc(stat)}</span>
+      </div>
+      <button class="dos-refresh" onclick="event.stopPropagation(); refreshThesis('${it.ticker}', this)" title="Re-run the analyst on ${esc(it.ticker)}">↻ refresh thesis</button>
+    </div>
+    <p class="dos-thesis">${reason}</p>
+    ${breaks ? `<div class="dos-block warn"><span class="dos-lbl">Breaks if</span><p>${breaks}</p></div>` : ""}
+    ${(sup || wk) ? `<div class="dos-cols">
+      ${sup ? `<div><span class="dos-lbl up">Supports</span><ul>${sup}</ul></div>` : ""}
+      ${wk ? `<div><span class="dos-lbl down">Pressures</span><ul>${wk}</ul></div>` : ""}
+    </div>` : ""}
+    <div class="dos-meta">${meta.map(([k, v]) => `<div><span class="k">${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join("")}</div>`;
+}
+
+function memDossier(items) {
+  if (!MEM_SELECTED || !items.some((i) => i.ticker === MEM_SELECTED)) MEM_SELECTED = items[0].ticker;
+  const list = items.map((it) => `
+    <button class="dos-item ${it.ticker === MEM_SELECTED ? "sel" : ""}" data-tkr="${it.ticker}">
+      <span class="wl-dot ${it.mode}"></span>
+      <span class="dos-tkr">${esc(it.ticker)}</span>
+      <span class="dos-call">${callShort(it)}</span>
+    </button>`).join("");
+  const it = items.find((i) => i.ticker === MEM_SELECTED);
+  return `<div class="dossier">
+    <div class="dos-list">${list}</div>
+    <div class="dos-detail">${memDetail(it)}</div>
+  </div>`;
+}
+
+function renderMemory() {
+  const body = $("#memBody");
+  if (!body) return;
+  const items = memItems();
+  if (!items.length) {
+    body.innerHTML = `<div class="wl-empty">Nothing tracked yet. Analyze a holding or run Discover — every thesis the brain forms is remembered here.</div>`;
+    return;
+  }
+  body.innerHTML = memDossier(items);
+  $$(".dos-item").forEach((b) => b.onclick = () => {
+    MEM_SELECTED = b.dataset.tkr;
+    $$(".dos-item").forEach((x) => x.classList.toggle("sel", x.dataset.tkr === MEM_SELECTED));
+    $(".dos-detail").innerHTML = memDetail(items.find((i) => i.ticker === MEM_SELECTED));
+  });
+}
+
+async function refreshThesis(ticker, btn) {
+  busy(btn, true);
+  try {
+    const t = await api("analyze", { ticker, refresh: true });
+    STATE = await api("state");
+    MEM_SELECTED = ticker;
+    renderMemory();
+    toast(`${ticker} thesis refreshed`);
+    showAnalysisModal(ticker, t);
+  } catch (e) {
+    toast(`Could not refresh ${ticker}`);
+  } finally {
+    busy(btn, false);
+  }
+}
+window.refreshThesis = refreshThesis;
 
 function renderBriefings(items) {
   const box = $("#briefings");

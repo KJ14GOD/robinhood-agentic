@@ -45,6 +45,68 @@ h3{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .between{justify-content:space-between}
 .section-head{display:flex;justify-content:space-between;align-items:center;margin-top:20px}
 .section-head h3{margin:0 0 8px}
+.section-head .count{color:var(--faint);font-weight:500;font-family:var(--mono);font-size:13px;letter-spacing:0}
+.linklike{background:none;border:0;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;padding:4px 2px;border-radius:6px;transition:color .12s}
+.linklike:hover{color:var(--txt)}
+
+/* research memory — a quiet ledger of tracked ideas; everything readable at rest */
+.wl{border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:var(--shadow);overflow:hidden;margin-top:6px}
+.wl-row{padding:16px 18px;transition:background .14s}
+.wl-row:not(:last-child){border-bottom:1px solid var(--line2)}
+.wl-row:hover{background:#fcfcfb}
+.wl-line{display:flex;align-items:center;gap:10px}
+.wl-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.wl-dot.stable{background:var(--green);box-shadow:0 0 0 3px rgba(16,163,72,.13)}
+.wl-dot.balanced{background:var(--amber);box-shadow:0 0 0 3px rgba(183,121,31,.13)}
+.wl-dot.volatile{background:var(--red);box-shadow:0 0 0 3px rgba(217,67,47,.13)}
+.wl-tkr{font-family:var(--mono);font-weight:700;font-size:15px;letter-spacing:-.01em}
+.wl-meta{font-size:12px;color:var(--faint);letter-spacing:.01em}
+.wl-alloc{margin-left:auto;font-family:var(--mono);font-size:14px;font-weight:600;color:var(--ink2);display:flex;align-items:baseline;gap:4px}
+.wl-alloc small{font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;font-family:var(--sans);font-weight:600}
+.wl-reason{font-size:13.5px;line-height:1.55;color:#3a3f45;margin:9px 0 0;max-width:64ch}
+.wl-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:11px;
+  font-family:var(--mono);font-size:11px;color:var(--faint);min-height:24px}
+.wl-open{background:none;border:0;color:var(--muted);font-family:var(--sans);font-size:12px;font-weight:600;
+  cursor:pointer;padding:5px 9px;border-radius:7px;opacity:0;transform:translateX(-3px);transition:.14s}
+.wl-row:hover .wl-open{opacity:1;transform:none}
+.wl-open:hover{background:var(--raised);color:var(--txt)}
+.wl-empty{padding:26px 20px;color:var(--muted);font-size:13.5px;line-height:1.5;text-align:center}
+
+/* ===================== Research Memory tab ===================== */
+.mem-head{align-items:flex-start;margin-bottom:18px}
+.mem-head h2{margin:0}
+
+/* shared case file (Dossier right pane + Ledger inline expand) */
+.dos-h{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.dos-h-l{display:flex;align-items:center;gap:11px}
+.dos-h-l h3{margin:0;font-family:var(--mono);font-size:21px;font-weight:750;letter-spacing:-.02em}
+.dos-status{font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;padding:3px 9px;border-radius:20px;background:var(--raised);color:var(--muted)}
+.dos-status.active{background:#e6f9e8;color:var(--green-d)}
+.dos-status.review{background:#fdf3e0;color:var(--amber)}
+.dos-status.broken,.dos-status.archived{background:#ffe9e0;color:var(--red)}
+.dos-refresh{background:none;border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer;transition:.14s;white-space:nowrap}
+.dos-refresh:hover{border-color:var(--ink2);color:var(--txt)}
+.dos-thesis{font-size:15px;line-height:1.62;color:var(--ink2);margin:17px 0 0;max-width:66ch}
+.dos-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;color:var(--faint)}
+.dos-lbl.up{color:var(--green-d)} .dos-lbl.down{color:var(--red)}
+.dos-block.warn{margin-top:18px;padding:13px 15px;background:#fffaf2;border:1px solid #f3e6cf;border-radius:10px}
+.dos-block.warn p{margin:5px 0 0;font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.dos-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:18px}
+.dos-cols ul{margin:7px 0 0;padding-left:17px}
+.dos-cols li{font-size:13px;line-height:1.5;color:var(--ink2);margin:3px 0}
+.dos-meta{display:flex;flex-wrap:wrap;gap:14px 30px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line2)}
+.dos-meta .k{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin-bottom:3px}
+.dos-meta .v{font-family:var(--mono);font-size:13.5px;color:var(--txt);font-weight:600;text-transform:capitalize}
+
+/* Layout A — Dossier (master / detail) */
+.dossier{display:grid;grid-template-columns:232px 1fr;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:var(--shadow);overflow:hidden;min-height:440px}
+.dos-list{border-right:1px solid var(--line);background:var(--bg);padding:7px;overflow:auto;max-height:620px}
+.dos-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:none;border:0;padding:11px;border-radius:9px;cursor:pointer;transition:background .12s}
+.dos-item:hover{background:var(--raised)}
+.dos-item.sel{background:#fff;box-shadow:var(--shadow)}
+.dos-tkr{font-family:var(--mono);font-weight:700;font-size:13.5px}
+.dos-call{margin-left:auto;font-size:11px;color:var(--faint)}
+.dos-detail{padding:28px 30px;overflow:auto}
 
 /* daily workspace */
 .brain-shell{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:28px;align-items:start}
