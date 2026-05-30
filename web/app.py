@@ -86,6 +86,11 @@ class BriefingBody(BaseModel):
     kind: str = "manual"
 
 
+class WatchTargetBody(BaseModel):
+    ticker: str
+    target_entry: float = 0.0
+
+
 # ----- API ----- #
 def _state(pf=None):
     pf = pf or brain.portfolio()
@@ -191,6 +196,12 @@ def events(limit: int = Query(40, ge=1, le=200)):
 @app.post("/api/briefing")
 def briefing(body: BriefingBody):
     return brain.create_briefing(body.kind).model_dump()
+
+
+@app.post("/api/watch/target")
+def watch_target(body: WatchTargetBody):
+    """Set/clear the entry-price alert on a watchlist name. Returns the new research state."""
+    return brain.set_watch_target(body.ticker, body.target_entry).model_dump()
 
 
 @app.get("/api/chart/{ticker}")

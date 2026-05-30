@@ -64,6 +64,11 @@ def get_research_state() -> ResearchState:
     return research_state.load_state()
 
 
+def set_watch_target(ticker: str, target_entry: float) -> ResearchState:
+    """Set/clear the entry-price alert on a watchlist name; returns the new state."""
+    return research_state.set_watch_target(ticker, target_entry)
+
+
 def create_briefing(kind: str = "manual") -> Briefing:
     if kind not in {"morning", "evening", "manual"}:
         kind = "manual"

@@ -152,6 +152,24 @@ def save_watch_item(ticker: str, reason: str = "", mode: str = "balanced",
     return save_state(state)
 
 
+def set_watch_target(ticker: str, target_entry: float) -> ResearchState:
+    """Set (or clear, with 0) the entry-price alert on a watchlist name. The
+    monitor pings when an unheld watchlist ticker trades at/below this price."""
+    state = load_state()
+    ticker = ticker.upper()
+    target = max(0.0, float(target_entry or 0.0))
+    for item in state.watchlist:
+        if item.ticker == ticker:
+            item.target_entry = target
+            item.updated_at = _now()
+            return save_state(state)
+    # Not tracked yet — add a minimal row that carries the alert.
+    state.watchlist.append(WatchItem(ticker=ticker, target_entry=target,
+                                     reason="Entry-price watch."))
+    state.watchlist = state.watchlist[-100:]
+    return save_state(state)
+
+
 def summarize_for_prompt(max_items: int = 20) -> str:
     state = load_state()
     lines: list[str] = []

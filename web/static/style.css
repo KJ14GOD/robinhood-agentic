@@ -95,6 +95,11 @@ h3{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .dos-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:18px}
 .dos-cols ul{margin:7px 0 0;padding-left:17px}
 .dos-cols li{font-size:13px;line-height:1.5;color:var(--ink2);margin:3px 0}
+.dos-target{display:flex;align-items:center;gap:10px;margin-top:20px;flex-wrap:wrap}
+.dos-target-in{width:120px;padding:7px 10px;font-family:var(--mono);font-size:13px}
+.dos-target-save{padding:7px 15px;font-size:12px;font-weight:650;background:var(--txt);color:#fff;border:0;border-radius:8px;cursor:pointer;transition:.14s}
+.dos-target-save:hover{opacity:.88}
+.dos-target-hint{font-size:11px;color:var(--faint)}
 .dos-meta{display:flex;flex-wrap:wrap;gap:14px 30px;margin-top:22px;padding-top:16px;border-top:1px solid var(--line2)}
 .dos-meta .k{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin-bottom:3px}
 .dos-meta .v{font-family:var(--mono);font-size:13.5px;color:var(--txt);font-weight:600;text-transform:capitalize}

@@ -410,7 +410,6 @@ function memDetail(it) {
     ["Conviction", it.mode],
     ["Last call", (th.last_decision || "WATCHLIST").toLowerCase()],
     it.max_allocation_pct ? ["Max size", it.max_allocation_pct + "%"] : null,
-    it.target_entry ? ["Target entry", "$" + (+it.target_entry).toFixed(2)] : null,
     it.added_at ? ["First tracked", (it.added_at || "").slice(0, 10)] : null,
   ].filter(Boolean);
   return `
@@ -429,8 +428,30 @@ function memDetail(it) {
       ${sup ? `<div><span class="dos-lbl up">Supports</span><ul>${sup}</ul></div>` : ""}
       ${wk ? `<div><span class="dos-lbl down">Pressures</span><ul>${wk}</ul></div>` : ""}
     </div>` : ""}
+    <div class="dos-target">
+      <span class="dos-lbl">Alert me under</span>
+      <input class="dos-target-in" type="number" step="0.01" min="0" placeholder="price" value="${it.target_entry || ""}" />
+      <button class="dos-target-save" onclick="setWatchTarget('${esc(it.ticker)}', this)">Set</button>
+      <span class="dos-target-hint">pings when ${esc(it.ticker)} trades at or below this</span>
+    </div>
     <div class="dos-meta">${meta.map(([k, v]) => `<div><span class="k">${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join("")}</div>`;
 }
+
+async function setWatchTarget(ticker, btn) {
+  const input = btn.parentElement.querySelector(".dos-target-in");
+  const val = Math.max(0, parseFloat(input.value) || 0);
+  busy(btn, true);
+  try {
+    STATE.research = await api("watch/target", { ticker, target_entry: val });
+    MEM_SELECTED = ticker;
+    renderMemory();
+    toast(val > 0 ? `Alert set: ${ticker} under ${money(val)}` : `Alert cleared for ${ticker}`);
+  } catch (e) {
+    busy(btn, false);
+    toast(`Could not set alert for ${ticker}`);
+  }
+}
+window.setWatchTarget = setWatchTarget;
 
 function memDossier(items) {
   if (!MEM_SELECTED || !items.some((i) => i.ticker === MEM_SELECTED)) MEM_SELECTED = items[0].ticker;
