@@ -5,6 +5,7 @@ single import surface for everything above the engine layer.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Iterator
 
@@ -13,8 +14,8 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, briefing, discovery, findings, guardian, monitor
-from .models import Briefing, ChartPoint, DiscoveryResult, GuardianDigest, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
+from .engines import analyst, briefing, discovery, findings, memory, monitor
+from .models import Briefing, ChartPoint, DiscoveryResult, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
 from .portfolio import clear_portfolio_cache, get_portfolio
 
 
@@ -161,19 +162,54 @@ def discover(flavor: str = "any", top_n: int = 5) -> DiscoveryResult:
     return discovery.discover(get_profile(), flavor=flavor, top_n=top_n, exclude=held)
 
 
-def daily_digest() -> GuardianDigest:
-    return guardian.run_guardian(get_portfolio(), get_profile())
+# Findings is an LLM pass, so it's cached and signature-gated: we only spend a
+# call when the holdings mix or the logged events actually changed (or the TTL
+# lapses). The background loop pre-warms it, so the feed is ready the instant the
+# tab opens and a calm book costs almost nothing.
+_FEED_CACHE: dict = {"feed": None, "at": 0.0, "sig": None}
+_FEED_TTL = 3 * 3600.0  # upper bound on staleness even when nothing changed
 
 
-def feed():
-    """Proactive findings for the always-on feed."""
-    return findings.scan(get_portfolio(), get_profile())
+def _feed_signature(pf: Portfolio) -> tuple:
+    holdings_key = tuple(sorted((h.ticker, round(h.market_value)) for h in pf.holdings))
+    latest = db_repo.recent_events(limit=1)
+    return (holdings_key, latest[0].get("id") if latest else None)
+
+
+def feed(force: bool = False):
+    """Curated findings for the always-on feed — a ranked view over the persisted
+    event stream (+ light news/opportunity enrichment). Cached so repeated tab
+    opens are instant and only a real change triggers a fresh LLM curation."""
+    pf = get_portfolio()
+    sig = _feed_signature(pf)
+    now = time.time()
+    cached = _FEED_CACHE["feed"]
+    if (not force and cached is not None and _FEED_CACHE["sig"] == sig
+            and now - _FEED_CACHE["at"] < _FEED_TTL):
+        return cached
+    result = findings.scan(pf, get_profile())
+    _FEED_CACHE.update(feed=result, at=now, sig=sig)
+    return result
+
+
+def prewarm_feed() -> None:
+    """Background pre-warm: refresh the findings cache if it's gone stale, so the
+    feed is already there when the user arrives. No-op cost when nothing changed."""
+    if get_portfolio().holdings:
+        feed()
 
 
 def run_monitors() -> list[dict]:
     """Cheap deterministic event scan over the live portfolio. Persists new,
     deduped events to the DB. Called by the background loop — no LLM, no tokens."""
     return monitor.run_monitors(get_portfolio(), get_profile())
+
+
+def revisit_memory() -> list[dict]:
+    """Living memory: re-judge triggered theses against their invalidation and move
+    them forward. Gated (only fires on a real trigger, once/day/name), so it spends
+    nothing on a calm book. Returns the theses that changed."""
+    return memory.revisit_theses(get_portfolio(), get_profile())
 
 
 def today_events(limit: int = 40, within_hours: float = 72.0) -> dict:

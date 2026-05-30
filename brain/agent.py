@@ -17,6 +17,7 @@ from . import llm, profile_store, research_state
 from .data.news import get_news
 from .data.prices import get_chart, get_signals, screen_universe
 from .data.universe import screening_universe
+from .db import repository as db_repo
 from .engines.discovery import _flavor_ok, _screen_score
 from .portfolio import get_portfolio
 
@@ -94,10 +95,21 @@ TOOLS = [
     },
     {
         "name": "get_research_memory",
-        "description": "Persistent watchlist, stored theses, invalidation rules, and alerts "
+        "description": "Persistent watchlist, stored theses, and invalidation rules "
                        "from prior recommendations. Use this before judging holdings or "
                        "continuing an older investment idea.",
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_recent_activity",
+        "description": "The brain's own logged observations from the always-on monitor and "
+                       "memory engine (the Activity feed): concentration, drawdowns, RSI/trend "
+                       "signals, thesis status changes, target hits. Read this to ground answers "
+                       "in what the brain has already noticed, rather than re-deriving it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "description": "How many recent events (max 40)"}},
+        },
     },
     {
         "name": "get_stock_chart",
@@ -177,6 +189,17 @@ def _tool_memory() -> str:
     return research_state.summarize_for_prompt()
 
 
+def _tool_activity(limit: int = 15) -> str:
+    evs = db_repo.recent_events(limit=max(1, min(int(limit or 15), 40)), within_hours=168.0)
+    if not evs:
+        return "No logged activity in the last week."
+    lines = ["Recent brain-logged activity (newest first):"]
+    for e in evs:
+        tk = (e.get("ticker") + " ") if e.get("ticker") else ""
+        lines.append(f"- [{e.get('severity', 'info')}] {tk}{e.get('title', '')}. {e.get('summary', '')}".rstrip())
+    return "\n".join(lines)
+
+
 def _tool_chart(ticker: str, span: str = "3m") -> str:
     return get_chart(ticker, span).summary()
 
@@ -195,6 +218,7 @@ _DISPATCH: dict[str, Callable[..., str]] = {
     "get_my_portfolio": _tool_portfolio,
     "get_my_profile": _tool_profile,
     "get_research_memory": _tool_memory,
+    "get_recent_activity": _tool_activity,
     "get_stock_chart": _tool_chart,
     "save_watchlist_item": _tool_save_watchlist,
 }

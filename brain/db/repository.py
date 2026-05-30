@@ -5,13 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import desc, select
 
-from ..models import Briefing, Holding, Portfolio, PriceAlert, ResearchState, Thesis, WatchItem
+from ..models import Briefing, Holding, Portfolio, ResearchState, Thesis, WatchItem
 from .models import (
     BriefingRecord,
     PortfolioSnapshot,
     PositionSnapshot,
-    PriceAlertRecord,
-    QuoteSnapshot,
     ResearchEventRecord,
     ThesisRecord,
     TickerResearchRecord,
@@ -74,14 +72,6 @@ def save_portfolio_snapshot(pf: Portfolio) -> None:
                         current_price=h.current_price,
                         market_value=h.market_value,
                         weight=weights.get(h.ticker, 0.0),
-                    )
-                )
-                session.add(
-                    QuoteSnapshot(
-                        ticker=h.ticker,
-                        price=h.current_price,
-                        source=pf.pricing_source or pf.source,
-                        captured_at=_parse_dt(pf.as_of),
                     )
                 )
     except Exception:
@@ -159,9 +149,6 @@ def load_research_state() -> ResearchState | None:
                 select(WatchlistItemRecord).order_by(WatchlistItemRecord.updated_at)
             ).scalars().all()
             thesis_rows = session.execute(select(ThesisRecord)).scalars().all()
-            alert_rows = session.execute(
-                select(PriceAlertRecord).order_by(PriceAlertRecord.created_at)
-            ).scalars().all()
             briefing_rows = session.execute(
                 select(BriefingRecord).order_by(BriefingRecord.created_at)
             ).scalars().all()
@@ -191,18 +178,6 @@ def load_research_state() -> ResearchState | None:
                     )
                     for r in thesis_rows
                 },
-                alerts=[
-                    PriceAlert(
-                        ticker=r.ticker,
-                        kind=r.kind if r.kind in {"below", "above", "review"} else "review",
-                        threshold=r.threshold,
-                        note=r.note,
-                        active=r.active,
-                        triggered_at=r.triggered_at.isoformat() if r.triggered_at else "",
-                        created_at=r.created_at.isoformat(),
-                    )
-                    for r in alert_rows
-                ],
                 briefings=[
                     Briefing(
                         id=r.id,
@@ -265,23 +240,6 @@ def save_research_state(state: ResearchState) -> None:
                 row.bullets_json = json.dumps(briefing.bullets)
                 row.actions_json = json.dumps(briefing.actions)
                 row.created_at = _parse_dt(briefing.created_at)
-
-            for alert in state.alerts:
-                row = session.execute(
-                    select(PriceAlertRecord)
-                    .where(PriceAlertRecord.ticker == alert.ticker)
-                    .where(PriceAlertRecord.kind == alert.kind)
-                    .where(PriceAlertRecord.threshold == alert.threshold)
-                ).scalars().first()
-                if not row:
-                    row = PriceAlertRecord(ticker=alert.ticker)
-                    session.add(row)
-                row.kind = alert.kind
-                row.threshold = alert.threshold
-                row.note = alert.note
-                row.active = alert.active
-                row.triggered_at = _parse_dt(alert.triggered_at) if alert.triggered_at else None
-                row.created_at = _parse_dt(alert.created_at)
     except Exception:
         return
 
@@ -312,18 +270,20 @@ def save_research_event(
         return
 
 
-def event_exists_recent(event_type: str, ticker: str, within_hours: float = 12.0) -> bool:
-    """Dedup guard for the monitor loop: has this exact (event_type, ticker) event
-    already fired inside the cooldown window? Keeps the loop from re-logging the
-    same standing condition (e.g. 'over concentration line') every cycle."""
+def event_exists_recent(event_type, ticker: str, within_hours: float = 12.0) -> bool:
+    """Dedup/cooldown guard: has an event of this type (or any of these types) for
+    this ticker fired inside the window? `event_type` may be a str or a list — the
+    monitor uses one type, the living-memory engine passes several outcome types so
+    it won't re-judge the same name more than once a day."""
     if not _ensure_ready():
         return False
+    types = [event_type] if isinstance(event_type, str) else list(event_type)
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
         with db_session() as session:
             stmt = (
                 select(ResearchEventRecord.id)
-                .where(ResearchEventRecord.event_type == event_type)
+                .where(ResearchEventRecord.event_type.in_(types))
                 .where(ResearchEventRecord.ticker == ticker.upper())
                 .where(ResearchEventRecord.created_at >= cutoff)
                 .limit(1)

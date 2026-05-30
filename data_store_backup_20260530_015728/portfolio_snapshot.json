@@ -1,0 +1,61 @@
+{
+  "holdings": [
+    {
+      "ticker": "APLD",
+      "quantity": 8.159973,
+      "avg_cost": 30.6374,
+      "current_price": 47.15
+    },
+    {
+      "ticker": "SOFI",
+      "quantity": 6.527415,
+      "avg_cost": 15.32,
+      "current_price": 18.2697
+    },
+    {
+      "ticker": "QQQ",
+      "quantity": 0.760493,
+      "avg_cost": 612.813,
+      "current_price": 737.66
+    },
+    {
+      "ticker": "ONDS",
+      "quantity": 3.62626,
+      "avg_cost": 6.2268,
+      "current_price": 13.05
+    },
+    {
+      "ticker": "VOO",
+      "quantity": 0.329335,
+      "avg_cost": 654.6525,
+      "current_price": 694.96
+    },
+    {
+      "ticker": "RKLB",
+      "quantity": 4.423366,
+      "avg_cost": 87.135,
+      "current_price": 142.24
+    },
+    {
+      "ticker": "IREN",
+      "quantity": 3.023203,
+      "avg_cost": 66.155,
+      "current_price": 63.21
+    },
+    {
+      "ticker": "DRAM",
+      "quantity": 0.09381,
+      "avg_cost": 62.9997,
+      "current_price": 63.26
+    }
+  ],
+  "cash": 0.0,
+  "buying_power": 1104.595,
+  "reported_equity": 2167.3899,
+  "pricing_source": "Robinhood API 24_7 historicals / portfolio profile",
+  "pricing_warning": "Robinhood web may show a different overnight value because its 24 Hour Market ATS feed is not fully exposed by robin_stocks.",
+  "source": "robinhood",
+  "sync_ok": true,
+  "sync_message": "",
+  "as_of": "2026-05-30T08:57:15.997135+00:00"
+}

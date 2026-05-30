@@ -177,11 +177,6 @@ def discover(body: DiscoverBody):
     return brain.discover(flavor=body.flavor, top_n=body.top_n).model_dump()
 
 
-@app.get("/api/digest")
-def digest():
-    return brain.daily_digest().model_dump()
-
-
 @app.get("/api/feed")
 def feed():
     return brain.feed().model_dump()
@@ -242,6 +237,19 @@ async def _refresh_loop() -> None:
             await asyncio.to_thread(brain.run_monitors)  # cheap, no-LLM event scan
         except Exception as e:  # noqa: BLE001
             logger.warning("monitor scan failed: %s", e)
+        # Living memory: re-judge triggered theses. Gated, so usually a no-op; its
+        # own guard so an LLM hiccup can't disturb price refresh or the monitor.
+        try:
+            await asyncio.to_thread(brain.revisit_memory)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("memory revisit failed: %s", e)
+        # Pre-warm the curated findings feed (over the freshly-logged events) so
+        # it's ready the moment the user opens the tab. Cached + signature-gated,
+        # so a calm book with no new events recomputes only when the TTL lapses.
+        try:
+            await asyncio.to_thread(brain.prewarm_feed)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("feed pre-warm failed: %s", e)
         await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
 
 

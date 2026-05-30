@@ -1,0 +1,137 @@
+{
+  "summary": "Portfolio is riding a powerful AI/space momentum wave, but three positions (RKLB, QQQ, APLD) sit above your 15% single-name comfort line and the high-beta sleeve (RKLB, APLD, IREN, ONDS) dominates risk. RKLB in particular is parabolic with RSI 78 and annualized vol of 89% \u2014 this is a balanced-risk portfolio in name only right now. The right move is disciplined trimming into strength, not chasing.",
+  "insights": [
+    {
+      "ticker": "RKLB",
+      "headline": "Parabolic move, 30% weight, RSI 78 \u2014 trim into strength",
+      "sentiment": "negative",
+      "detail": "Up 254% in 6m, 91% in 1m, beta 2.31, vol 89%, RSI 78. News flow is SpaceX-IPO-hype and short-squeeze driven, not fundamentals. P/E undefined, $87B cap on a still-pre-profit launcher. At 30% of the book, a single bad earnings or share sale (see Firefly precedent in headlines) wipes out a material chunk of net worth.",
+      "suggested_action": {
+        "ticker": "RKLB",
+        "action": "trim",
+        "conviction": 8,
+        "thesis": "This is a risk-management trade, not a thesis change. RKLB has tripled in six months, RSI is deeply overbought, and 30% in a beta-2.3 story stock is incompatible with a balanced profile. Lock in some of the +70% gain and bring the position back inside your stated 15% ceiling.",
+        "catalyst": "Mean reversion after SpaceX IPO hype fades; any secondary offering or Neutron timeline slip; broad risk-off in high-beta names.",
+        "risks": "Momentum continues and you underweight a winner. Mitigated by keeping a still-meaningful 12\u201315% stake \u2014 you stay long the story, just not levered to it.",
+        "suggested_size_pct": 15.0,
+        "fits_profile_because": "Balanced risk + medium horizon + 15% cap explicitly calls for trimming a 30% high-vol single name.",
+        "decision_label": "TRIM"
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "headline": "Core exposure but oversized at 25%",
+      "sentiment": "neutral",
+      "detail": "QQQ at 25.3% on top of VOO 10.4% means ~36% in broad US large-cap beta, heavily tech-tilted. RSI 70, above both MAs \u2014 healthy uptrend, not a sell, but the weight exceeds your stated 15% comfort line for a single ticker.",
+      "suggested_action": {
+        "ticker": "QQQ",
+        "action": "trim",
+        "conviction": 5,
+        "thesis": "QQQ is a fine core holding, but it overlaps heavily with VOO and pushes your tech beta even higher when you already own APLD, IREN, ONDS. Right-sizing toward 15% reduces redundancy without changing portfolio character.",
+        "catalyst": "Use any continued melt-up to rebalance; no urgency.",
+        "risks": "Tech keeps leading and you give up some upside. Minor \u2014 VOO captures most of it.",
+        "suggested_size_pct": 15.0,
+        "fits_profile_because": "Respects the 15% single-position ceiling while keeping diversified equity beta intact.",
+        "decision_label": "TRIM"
+      }
+    },
+    {
+      "ticker": "APLD",
+      "headline": "Hyperscaler lease is real, but beta 5.7 and 18% weight is too much",
+      "sentiment": "positive",
+      "detail": "15-year hyperscaler lease materially de-risks the AI campus build-out and the stock has confirmed it (+52% 1m, +106% 6m). But beta 5.7 and annualized vol 114% mean this is the single most explosive name in the book, and it's above your 15% cap.",
+      "suggested_action": {
+        "ticker": "APLD",
+        "action": "trim",
+        "conviction": 6,
+        "thesis": "The fundamental story improved meaningfully with the hyperscaler lease, so don't exit \u2014 but a 5.7-beta name has no business being 18% of a balanced portfolio. Take it to ~12\u201314%.",
+        "catalyst": "Next lease announcement or financing update could spike or sink it; either way, you want to be inside your size limit before that print.",
+        "risks": "AI capex narrative cools, financing dilution, or a single tenant concentration scare. All amplified by the vol profile.",
+        "suggested_size_pct": 13.0,
+        "fits_profile_because": "Keeps meaningful exposure to a working thesis while honoring the 15% rule on a high-vol name.",
+        "decision_label": "TRIM"
+      }
+    },
+    {
+      "ticker": "VOO",
+      "headline": "True core \u2014 leave alone, likely add with trim proceeds",
+      "sentiment": "positive",
+      "detail": "Vol 12%, broad diversification, 1.08% yield, steady +13% over 6m. Only 10.4% of book \u2014 under-weighted relative to the speculative sleeve.",
+      "suggested_action": {
+        "ticker": "VOO",
+        "action": "add",
+        "conviction": 6,
+        "thesis": "Use proceeds from RKLB/APLD/QQQ trims to lift VOO. It's the lowest-vol, most-diversified piece of the book and currently under-represented versus the high-beta sleeve.",
+        "catalyst": "Mechanical rebalance, not event-driven.",
+        "risks": "Broad market drawdown hits VOO too, but by definition less than the rest of the portfolio.",
+        "suggested_size_pct": 20.0,
+        "fits_profile_because": "Balanced profile demands a larger ballast against the high-beta names you're keeping.",
+        "decision_label": "BUY CANDIDATE"
+      }
+    },
+    {
+      "ticker": "IREN",
+      "headline": "Nvidia Blackwell deal is a legit catalyst; size is appropriate",
+      "sentiment": "positive",
+      "detail": "$1.6B Nvidia infrastructure deal and ARR raised to $4.4B are concrete, not hype. Beta 4.18 and vol 101% are extreme, but at 9.3% weight the sizing is finally sensible for a name like this. RSI 56 \u2014 not stretched.",
+      "suggested_action": {
+        "ticker": "IREN",
+        "action": "hold",
+        "conviction": 6,
+        "thesis": "Fundamental story is upgrading and the position is correctly sized. No reason to touch it.",
+        "catalyst": "Further hyperscaler / GPU-cloud contract announcements, quarterly ARR updates.",
+        "risks": "AI infrastructure capex cycle peaks; bitcoin mining legacy exposure remains; financing/dilution risk at 88x P/E.",
+        "suggested_size_pct": 9.0,
+        "fits_profile_because": "High-beta name kept under the 15% ceiling \u2014 exactly how a balanced investor should hold these.",
+        "decision_label": "HOLD"
+      }
+    },
+    {
+      "ticker": "SOFI",
+      "headline": "Only laggard in the book, but below both MAs",
+      "sentiment": "neutral",
+      "detail": "-11.9% / -15.3% / -41% trailing returns, below 50d and 200d MAs, RSI 49. Tech-platform revenue and stablecoin launch are interesting optionality but not yet showing in the tape. Position is small (4.8%) so it's not hurting much.",
+      "suggested_action": {
+        "ticker": "SOFI",
+        "action": "watch",
+        "conviction": 4,
+        "thesis": "Don't add to a downtrend. Wait for price to reclaim the 50-day and for tech-platform revenue to show up in earnings before sizing up. Don't sell a small position into weakness without a thesis break either.",
+        "catalyst": "Next earnings print \u2014 specifically tech-platform segment growth; reclaim of 50d MA.",
+        "risks": "Consumer credit deterioration, stablecoin/regulatory noise distracting from core lending economics.",
+        "suggested_size_pct": 5.0,
+        "fits_profile_because": "Small speculative fintech exposure is fine for a balanced investor; just don't average down blindly.",
+        "decision_label": "WATCHLIST"
+      }
+    },
+    {
+      "ticker": "ONDS",
+      "headline": "Tiny speculative drone bet \u2014 fine as-is",
+      "sentiment": "neutral",
+      "detail": "1.8% weight, +73% unrealized, vol 125%, P/E 120. Pure thematic drone/defense lottery ticket. Too small to matter to portfolio outcomes, large enough to participate if the theme runs.",
+      "suggested_action": null
+    },
+    {
+      "ticker": "PHAT",
+      "headline": "30 bps stub position \u2014 clean up or commit",
+      "sentiment": "neutral",
+      "detail": "0.3% of portfolio (~$7). Below both MAs, RSI 29 (oversold), 6m -27.5%. At this size it's noise; the only question is whether you have conviction to make it meaningful.",
+      "suggested_action": {
+        "ticker": "PHAT",
+        "action": "sell",
+        "conviction": 5,
+        "thesis": "A 0.3% position cannot move the needle either way. Either size up to a real position (2\u20134%) with a documented thesis on vonoprazan exclusivity and 2026 profitability, or close it and free the mental overhead. Given the downtrend and your indifference to the story, closing is the cleaner call.",
+        "catalyst": "None required \u2014 this is housekeeping.",
+        "risks": "PHAT rips on a profitability beat after you sell. Cost of being wrong: trivial given size.",
+        "suggested_size_pct": 0.0,
+        "fits_profile_because": "Balanced investors don't carry sub-1% stub positions; either conviction or exit.",
+        "decision_label": "EXIT REVIEW"
+      }
+    }
+  ],
+  "concentration_flags": [
+    "RKLB at 30% is 2x your stated 15% single-name ceiling and is the highest-vol name in the book \u2014 this is the single biggest risk in the portfolio.",
+    "QQQ at 25% exceeds the 15% ceiling and overlaps heavily with VOO, compounding US large-cap tech beta.",
+    "APLD at 18% exceeds the ceiling on a beta-5.7, 114%-vol name \u2014 sizing is inconsistent with a balanced profile.",
+    "Aggregate high-beta sleeve (RKLB + APLD + IREN + ONDS) \u2248 59% of the book; effective portfolio beta is well above 'balanced.'"
+  ]
+}

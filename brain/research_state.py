@@ -13,7 +13,7 @@ from .models import Briefing, ResearchState, StockIdea, Thesis, TradeTicket, Wat
 
 def load_state() -> ResearchState:
     db_state = db_repo.load_research_state()
-    if db_state and (db_state.watchlist or db_state.theses or db_state.alerts or db_state.briefings):
+    if db_state and (db_state.watchlist or db_state.theses or db_state.briefings):
         return db_state
     if config.RESEARCH_STATE_PATH.exists():
         state = ResearchState.model_validate_json(config.RESEARCH_STATE_PATH.read_text())
@@ -85,12 +85,22 @@ def update_from_ticket(ticket: TradeTicket) -> ResearchState:
     if ticket.action in ("buy", "add", "watch"):
         upsert_watch_item(
             ticker=ticker,
-            reason=ticket.thesis,
+            reason=_watch_reason(ticket),
             mode=_mode_from_size(ticket.suggested_size_pct),
             max_allocation_pct=ticket.suggested_size_pct,
             state=state,
         )
     return save_state(state)
+
+
+def _watch_reason(ticket: TradeTicket) -> str:
+    """Short *why-track* line for the watchlist — the forward catalyst we're
+    waiting on, NOT the full thesis (that lives on the Thesis record). Keeps the
+    three research tables meaning three different things."""
+    catalyst = (ticket.catalyst or "").strip()
+    if catalyst:
+        return catalyst[:200]
+    return f"Tracking after {ticket.decision_label.lower()} call."
 
 
 def add_discovery_ideas(ideas: list[StockIdea]) -> ResearchState:
@@ -157,9 +167,4 @@ def summarize_for_prompt(max_items: int = 20) -> str:
                 f"- {thesis.ticker}: {thesis.last_decision}, {thesis.status}. "
                 f"Thesis: {thesis.thesis} Invalidation: {thesis.invalidation}"
             )
-    if state.alerts:
-        lines.append("Active alerts:")
-        for alert in [a for a in state.alerts if a.active][-max_items:]:
-            threshold = f" {alert.threshold:g}" if alert.threshold else ""
-            lines.append(f"- {alert.ticker}: {alert.kind}{threshold}. {alert.note}")
     return "\n".join(lines) or "No persistent research memory yet."

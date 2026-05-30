@@ -99,6 +99,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   $$(".panel").forEach((x) => x.classList.remove("active"));
   t.classList.add("active"); $("#" + t.dataset.tab).classList.add("active");
   if (t.dataset.tab === "portfolio" && STATE) loadPortfolioChart();
+  if (t.dataset.tab === "activity" && STATE) loadActivity();
   if (t.dataset.tab === "memory" && STATE) renderMemory();
 }));
 
@@ -106,7 +107,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
 async function loadState() {
   STATE = await api("state");
   renderState();
-  loadEvents();  // cheap DB read; keeps the "What changed" stream fresh on the 60s tick
+  if ($("#activity").classList.contains("active")) loadActivity();
 }
 
 function renderState() {
@@ -397,7 +398,10 @@ function callShort(it) {
 // The shared "case file" — used by Dossier (right pane) and Ledger (inline).
 function memDetail(it) {
   const th = it.th;
-  const reason = esc(it.reason || th.thesis || "No thesis stored yet.");
+  // Thesis-first: the durable belief (Thesis record) is the headline; the
+  // watchlist reason is shown separately as the forward "tracking" trigger.
+  const thesis = esc(th.thesis || it.reason || "No thesis stored yet.");
+  const track = it.reason && it.reason !== th.thesis ? esc(it.reason) : "";
   const breaks = th.invalidation ? esc(th.invalidation) : "";
   const sup = (th.strengthens || []).map((s) => `<li>${esc(s)}</li>`).join("");
   const wk = (th.weakens || []).map((s) => `<li>${esc(s)}</li>`).join("");
@@ -418,7 +422,8 @@ function memDetail(it) {
       </div>
       <button class="dos-refresh" onclick="event.stopPropagation(); refreshThesis('${it.ticker}', this)" title="Re-run the analyst on ${esc(it.ticker)}">↻ refresh thesis</button>
     </div>
-    <p class="dos-thesis">${reason}</p>
+    <p class="dos-thesis">${thesis}</p>
+    ${track ? `<div class="dos-block"><span class="dos-lbl">Tracking for</span><p>${track}</p></div>` : ""}
     ${breaks ? `<div class="dos-block warn"><span class="dos-lbl">Breaks if</span><p>${breaks}</p></div>` : ""}
     ${(sup || wk) ? `<div class="dos-cols">
       ${sup ? `<div><span class="dos-lbl up">Supports</span><ul>${sup}</ul></div>` : ""}
@@ -501,37 +506,79 @@ async function createBriefing(kind, btn) {
 $("#morningBrief").onclick = (e) => createBriefing("morning", e.target);
 $("#eveningBrief").onclick = (e) => createBriefing("evening", e.target);
 
-// ---------- event stream (deterministic monitor) ----------
-function sevKind(sev) { return ({ alert: "risk", warn: "concentration", info: "news" })[sev] || "news"; }
-function eventAge(iso) {
-  if (!iso) return "";
+// ---------- Activity (dense terminal log) ----------
+const JUDGEMENT_TYPES = new Set(["thesis_broken", "thesis_review", "thesis_affirmed", "ticker_research"]);
+let ACT_FILTER = "all";
+let ACT_EVENTS = [];
+
+function actKind(e) {
+  return JUDGEMENT_TYPES.has(e.event_type) || e.source === "memory" || e.source === "analyze"
+    ? "judgement" : "signal";
+}
+function actTime(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+function actDay(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const m = Math.floor((Date.now() - d.getTime()) / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const now = new Date();
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((b - a) / 86400000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
-async function loadEvents() {
-  const box = $("#eventStream");
-  if (!box) return;
+// the verb phrase: the stored title minus the leading ticker
+function actWhat(e) {
+  let t = e.title || e.event_type || "";
+  if (e.ticker && t.toUpperCase().startsWith(e.ticker.toUpperCase())) t = t.slice(e.ticker.length).trim();
+  return t;
+}
+
+async function loadActivity() {
   let r;
-  try { r = await api("events"); } catch (e) { return; }
-  const evs = (r && r.events) || [];
-  const cnt = $("#eventCount");
-  if (cnt) cnt.textContent = evs.length ? `${evs.length} recent` : "";
-  box.innerHTML = evs.length ? evs.map((e) => `
-    <div class="finding">
-      <div class="ic ${sevKind(e.severity)}"></div>
-      <div class="body">
-        <div class="ft">${e.ticker ? `<span class="tk" onclick="analyze('${esc(e.ticker)}')">${esc(e.ticker)}</span> ` : ""}${esc(e.title)}</div>
-        <div class="fd">${esc(e.summary)} <span class="sub2">· ${eventAge(e.created_at)}</span></div>
-      </div>
-      <span class="pill ${sevKind(e.severity)}">${esc(e.severity)}</span>
-    </div>`).join("") : `<div class="loading">All clear — nothing flagged. The monitor scans every couple of minutes.</div>`;
+  try { r = await api("events?limit=120"); } catch (e) { return; }
+  ACT_EVENTS = (r && r.events) || [];
+  renderActivity();
 }
+function renderActivity() {
+  const box = $("#actLog");
+  if (!box) return;
+  const evs = ACT_EVENTS
+    .filter((e) => ACT_FILTER === "all" || actKind(e) === ACT_FILTER)
+    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+  const sub = $("#actSub");
+  if (sub) {
+    const j = ACT_EVENTS.filter((e) => actKind(e) === "judgement").length;
+    sub.textContent = ACT_EVENTS.length
+      ? `${ACT_EVENTS.length} entries · ${j} judgement${j === 1 ? "" : "s"}`
+      : "What the brain has noticed and decided, newest first.";
+  }
+  if (!evs.length) {
+    box.innerHTML = `<div class="act-empty">Nothing logged yet. The brain writes here as it watches — checks run every couple of minutes.</div>`;
+    return;
+  }
+  let html = "", lastDay = null;
+  for (const e of evs) {
+    const d = actDay(e.created_at);
+    if (d !== lastDay) { html += `<div class="act-day">${esc(d)}</div>`; lastDay = d; }
+    const kind = actKind(e);
+    html += `<div class="act-row ${kind} ${esc(e.severity || "info")}">
+      <span class="act-time">${esc(actTime(e.created_at))}</span>
+      <span class="act-tk"${e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : ""}>${esc(e.ticker || "")}</span>
+      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${esc(e.summary || "")}</span></span>
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+$$("#actFilter button").forEach((b) => b.addEventListener("click", () => {
+  $$("#actFilter button").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on");
+  ACT_FILTER = b.dataset.f;
+  renderActivity();
+}));
 
 // ---------- findings feed ----------
 async function loadFeed() {
@@ -549,7 +596,7 @@ async function loadFeed() {
       <span class="pill ${x.kind}">${x.kind}</span>
     </div>`).join("") : `<div class="loading">Nothing pressing right now. Add holdings or ask the brain below.</div>`;
 }
-$("#refreshFeed").onclick = () => { loadEvents(); loadFeed(); };
+$("#refreshFeed").onclick = () => loadFeed();
 
 // ---------- editor ----------
 function editorRow(h = {}) {
@@ -624,21 +671,6 @@ $("#runDiscover").onclick = async (e) => {
       <div class="conv">${esc(i.name || "")} · conviction ${i.conviction}/10</div><div class="bar"><i style="width:${i.conviction * 10}%"></i></div>
       <span class="lbl">Why now</span><p>${esc(i.why_now)}</p>
       <span class="lbl">Signal</span><p>${esc(i.signal_summary)}</p></div>`).join("") || `<p class="muted">No matches — try another flavor.</p>`;
-  busy(e.target, false);
-};
-
-// ---------- digest ----------
-$("#runDigest").onclick = async (e) => {
-  busy(e.target, true);
-  $("#digestSummary").innerHTML = `<div class="loading"><span class="spin"></span> Reading news & signals for every holding…</div>`;
-  $("#digestInsights").innerHTML = "";
-  const d = await api("digest");
-  $("#digestSummary").innerHTML = `<div class="card" style="margin:14px 0">${mdLite(d.summary || "")}
-    ${(d.concentration_flags || []).map((f) => `<p class="neg">⚠ ${esc(f)}</p>`).join("")}</div>`;
-  $("#digestInsights").innerHTML = (d.insights || []).map((i) => `
-    <div class="card"><div class="head"><span class="tkr" onclick="analyze('${i.ticker}')">${i.ticker}</span>
-      <span class="pill ${i.sentiment}">${i.sentiment}</span></div>
-      <p><strong>${esc(i.headline)}</strong></p><p>${esc(i.detail)}</p></div>`).join("");
   busy(e.target, false);
 };
 

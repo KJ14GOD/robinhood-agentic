@@ -2,6 +2,7 @@
   --bg:#fbfbfa; --surface:#ffffff; --raised:#f5f6f7; --line:#e7e8ea; --line2:#f0f1f2;
   --txt:#17191c; --muted:#686f77; --faint:#9aa0a6;
   --green:#10a348; --green-d:#0b7f38; --red:#d9432f; --amber:#b7791f; --blue:#2563eb;
+  --brain:#6e56cf;
   --ink2:#2f343a;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(30,36,45,.06);
   --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,monospace;
@@ -293,3 +294,47 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .stale-banner{margin:8px 0 0;padding:9px 14px;border-radius:8px;
   background:#fff4e5;border:1px solid var(--amber);color:var(--amber);
   font-size:13px;font-weight:600}
+
+/* ============ Activity — dense, terminal-style brain log ============ */
+/* Emphasis is inverted: judgements (the brain's verdicts) wear the ink and the
+   violet accent; signals (deterministic facts) recede into grey. The eye lands
+   on judgements without any loud color. */
+.act-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.act-filter{display:inline-flex;background:var(--raised);border:1px solid var(--line);
+  border-radius:9px;padding:2px}
+.act-filter button{background:none;border:0;font:inherit;font-size:12.5px;color:var(--muted);
+  padding:5px 13px;border-radius:7px;cursor:pointer;transition:color .12s}
+.act-filter button:hover{color:var(--txt)}
+.act-filter button.on{background:#fff;color:var(--txt);box-shadow:0 1px 2px rgba(0,0,0,.06);font-weight:560}
+
+.actlog{margin-top:22px;border-top:1px solid var(--line)}
+.act-day{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);
+  font-family:var(--mono);padding:20px 0 6px 12px}
+.act-day:first-child{padding-top:14px}
+
+.act-row{display:grid;grid-template-columns:52px 60px minmax(0,1fr);align-items:baseline;
+  column-gap:16px;padding:9px 14px 9px 12px;border-left:2px solid transparent;
+  border-bottom:1px solid var(--line2)}
+.act-row:hover{background:#fcfcfb}
+.act-time{font-family:var(--mono);font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+.act-tk{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--faint);cursor:pointer}
+.act-main{min-width:0;display:flex;gap:12px;align-items:baseline}
+.act-what{white-space:nowrap;font-size:13.5px;color:var(--muted);flex:none}
+.act-detail{min-width:0;color:var(--faint);font-size:13px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.act-row:hover .act-detail{white-space:normal;overflow:visible}
+
+/* judgements: full ink + violet */
+.act-row.judgement .act-tk{color:var(--brain)}
+.act-row.judgement .act-what{color:var(--txt);font-weight:560}
+.act-row.judgement{border-left-color:var(--brain)}
+/* a broken thesis / alert fact is the only thing that earns red */
+.act-row.signal.alert{border-left-color:var(--red)}
+
+.act-empty{color:var(--faint);font-size:13.5px;padding:26px 12px;font-family:var(--mono)}
+
+@media(max-width:560px){
+  .act-row{grid-template-columns:46px 52px minmax(0,1fr);column-gap:10px}
+  .act-main{flex-direction:column;gap:2px}
+  .act-what{white-space:normal}
+}

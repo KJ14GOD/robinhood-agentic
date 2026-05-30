@@ -50,27 +50,6 @@ class PositionSnapshot(Base):
     snapshot: Mapped[PortfolioSnapshot] = relationship(back_populates="positions")
 
 
-class QuoteSnapshot(Base):
-    __tablename__ = "quote_snapshots"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ticker: Mapped[str] = mapped_column(String(20), index=True)
-    price: Mapped[float] = mapped_column(Float, default=0.0)
-    source: Mapped[str] = mapped_column(String(80), default="")
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-
-
-class AgentRun(Base):
-    __tablename__ = "agent_runs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String(40), index=True)
-    status: Mapped[str] = mapped_column(String(40), default="ok", index=True)
-    prompt: Mapped[str] = mapped_column(Text, default="")
-    answer: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-
-
 class ThesisRecord(Base):
     __tablename__ = "theses"
 
@@ -97,19 +76,6 @@ class WatchlistItemRecord(Base):
     max_allocation_pct: Mapped[float] = mapped_column(Float, default=0.0)
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-
-
-class PriceAlertRecord(Base):
-    __tablename__ = "price_alerts"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    ticker: Mapped[str] = mapped_column(String(20), index=True)
-    kind: Mapped[str] = mapped_column(String(40), default="review", index=True)
-    threshold: Mapped[float] = mapped_column(Float, default=0.0)
-    note: Mapped[str] = mapped_column(Text, default="")
-    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class BriefingRecord(Base):
@@ -152,5 +118,4 @@ class TickerResearchRecord(Base):
 
 
 Index("ix_position_snapshots_ticker_snapshot", PositionSnapshot.ticker, PositionSnapshot.snapshot_id)
-Index("ix_quote_snapshots_ticker_captured", QuoteSnapshot.ticker, QuoteSnapshot.captured_at)
 Index("ix_research_events_ticker_created", ResearchEventRecord.ticker, ResearchEventRecord.created_at)

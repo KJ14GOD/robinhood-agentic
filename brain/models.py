@@ -199,21 +199,6 @@ class DiscoveryResult(BaseModel):
     ideas: list[StockIdea]
 
 
-class PortfolioInsight(BaseModel):
-    """One item in the daily guardian digest."""
-    ticker: str
-    headline: str
-    sentiment: Literal["positive", "neutral", "negative"]
-    detail: str
-    suggested_action: Optional[TradeTicket] = None
-
-
-class GuardianDigest(BaseModel):
-    summary: str = Field(description="2-3 sentence state-of-the-portfolio.")
-    insights: list[PortfolioInsight]
-    concentration_flags: list[str] = Field(default_factory=list)
-
-
 class Finding(BaseModel):
     """A single proactive item for the always-on findings feed."""
     kind: Literal["opportunity", "risk", "news", "concentration"]
@@ -262,6 +247,16 @@ class Thesis(BaseModel):
     updated_at: str = Field(default_factory=_now)
 
 
+class ThesisVerdict(BaseModel):
+    """The living-memory engine's re-judgement of a stored thesis after an event
+    trips its invalidation condition. Drives the thesis status forward."""
+    status: Literal["active", "review", "broken"] = Field(
+        description="'broken' only if the invalidation condition is clearly met; "
+                    "'review' if at risk and worth a human look; 'active' if it still holds.")
+    decision_label: DecisionLabel = "HOLD"
+    reason: str = Field(description="ONE grounded sentence citing the specific evidence.")
+
+
 class WatchItem(BaseModel):
     ticker: str
     reason: str = ""
@@ -270,16 +265,6 @@ class WatchItem(BaseModel):
     max_allocation_pct: float = 0.0
     added_at: str = Field(default_factory=_now)
     updated_at: str = Field(default_factory=_now)
-
-
-class PriceAlert(BaseModel):
-    ticker: str
-    kind: Literal["below", "above", "review"] = "review"
-    threshold: float = 0.0
-    note: str = ""
-    active: bool = True
-    triggered_at: str = ""
-    created_at: str = Field(default_factory=_now)
 
 
 class Briefing(BaseModel):
@@ -295,7 +280,6 @@ class Briefing(BaseModel):
 class ResearchState(BaseModel):
     watchlist: list[WatchItem] = Field(default_factory=list)
     theses: dict[str, Thesis] = Field(default_factory=dict)
-    alerts: list[PriceAlert] = Field(default_factory=list)
     briefings: list[Briefing] = Field(default_factory=list)
     updated_at: str = Field(default_factory=_now)
 

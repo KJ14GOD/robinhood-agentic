@@ -18,10 +18,10 @@ from brain import orchestrator  # noqa: E402
 
 
 def tearDownModule():
-    try:
-        os.unlink(_TMP.name)
-    except OSError:
-        pass
+    # Intentionally do NOT unlink mid-run: when the whole suite runs in one
+    # process all modules share this DB, and deleting it here would pull the rug
+    # out from under later modules. The OS cleans up /tmp.
+    pass
 
 
 class EventRepoTests(unittest.TestCase):

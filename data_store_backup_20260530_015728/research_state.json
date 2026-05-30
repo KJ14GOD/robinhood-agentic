@@ -1,0 +1,418 @@
+{
+  "watchlist": [
+    {
+      "ticker": "INTC",
+      "reason": "Contrarian setup: RSI 40 inside a 6m +211% uptrend is a pullback in a turnaround, not a breakdown. Foundry/government-backing optionality. You like APLD-style story stocks; INTC is the mega-cap version.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-28T03:49:21.847288+00:00",
+      "updated_at": "2026-05-30T08:19:02.069628+00:00"
+    },
+    {
+      "ticker": "MU",
+      "reason": "Pure-play memory leverage to the AI HBM cycle — 1m +87%, 3m +135% confirms a fundamental re-rating, not just a squeeze. P/E ~46 is digestible against the earnings ramp; RSI 70 is hot but not blow-off.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-28T03:49:21.847192+00:00",
+      "updated_at": "2026-05-30T08:19:00.825251+00:00"
+    },
+    {
+      "ticker": "DELL",
+      "reason": "The 'picks and shovels' AI server play with the most grounded fundamentals here: beta ~1, P/E 35, actual dividend, and a $198B cap. Less story, more backlog. Best fit for a balanced investor who wants AI exposure without paying 150x earnings.",
+      "mode": "balanced",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-28T03:49:21.847255+00:00",
+      "updated_at": "2026-05-28T05:52:55.577181+00:00"
+    },
+    {
+      "ticker": "WDC",
+      "reason": "Same storage-for-AI thesis as STX but cheaper (P/E 32) and earlier in the move (1m only +22% vs. peers' +50-100%). The relative laggard within a leading group is often the best risk/reward entry.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-28T03:49:21.847268+00:00",
+      "updated_at": "2026-05-30T08:19:01.660054+00:00"
+    },
+    {
+      "ticker": "CIEN",
+      "reason": "Optical networking laggard within this group — 'only' +23% last month and RSI 51, meaning it hasn't gone parabolic yet. Datacenter interconnect demand is the same AI thesis driving COHR/LITE, but entry point is less extended. P/E 370 is the obvious caveat — earnings need to catch up fast.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-28T03:49:21.847278+00:00",
+      "updated_at": "2026-05-28T05:52:55.577197+00:00"
+    },
+    {
+      "ticker": "MPC",
+      "reason": "Diversifier #1 for tech-heavy book. Energy/refining, beta 0.53, P/E 16.5, 1.6% div. Fills the energy sector gap. RSI 58, above 50d/200d, not extended. Trigger to reassess: break below 50d (~$235) or RSI >70.",
+      "mode": "stable",
+      "target_entry": 0.0,
+      "max_allocation_pct": 10.0,
+      "added_at": "2026-05-28T18:29:46.379534+00:00",
+      "updated_at": "2026-05-28T18:29:46.379878+00:00"
+    },
+    {
+      "ticker": "TGT",
+      "reason": "Consumer defensive diversifier. P/E 17, beta 1.01, 3.55% div yield. Turnaround in progress, +52% 6m but RSI only 57. Funded by trimming RKLB/APLD overweights. Watch earnings — can gap 10%+.",
+      "mode": "stable",
+      "target_entry": 0.0,
+      "max_allocation_pct": 10.0,
+      "added_at": "2026-05-28T18:29:46.385933+00:00",
+      "updated_at": "2026-05-28T18:29:46.385960+00:00"
+    },
+    {
+      "ticker": "APLD",
+      "reason": "APLD has re-rated violently on a real catalyst — a $7.5B 15-year hyperscaler lease for Polaris Forge that legitimizes the AI data center pivot — but beta 5.7, 113% annualized vol, and +108% in 6 months mean you're being asked to chase after the news is out. The setup is fundamentally improved, but entry here is momentum-priced, not value-priced.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 2.0,
+      "added_at": "2026-05-28T18:59:44.926931+00:00",
+      "updated_at": "2026-05-28T18:59:44.926937+00:00"
+    },
+    {
+      "ticker": "SOFI",
+      "reason": "SoFi is a high-beta (2.13) fintech rebuilding after a sharp 6-month drawdown (-40%), now showing short-term momentum (+9.3% 1m, above 50d MA, RSI 59) but still below the 200d MA — classic mid-recovery setup that hasn't confirmed a trend change. At 37.7x earnings it's priced for continued growth in the tech platform (Galileo) and lending, so the thesis hinges on Q4/Q1 results validating revenue acceleration. CEO insider buying three times this year is a real positive signal, but doesn't override the broken longer-term trend.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 3.0,
+      "added_at": "2026-05-29T07:45:56.997198+00:00",
+      "updated_at": "2026-05-29T07:45:56.997211+00:00"
+    },
+    {
+      "ticker": "ONDS",
+      "reason": "Ondas is riding a powerful drone/defense narrative with Trump administration funding talk and a fresh Oppenheimer buy call, but the stock is extended: RSI 71, +39.6% in a month, 126% annualized vol, and a $6.6B market cap on a 147x P/E. The setup is momentum-driven, not fundamentals-driven, so entering here is chasing rather than buying conviction. Thesis breaks if Pentagon funding rumors fail to convert into an actual contract.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 2.0,
+      "added_at": "2026-05-29T07:45:59.613194+00:00",
+      "updated_at": "2026-05-29T07:45:59.613224+00:00"
+    },
+    {
+      "ticker": "VOO",
+      "reason": "VOO is a core S&P 500 exposure that would meaningfully lower this book's 3.52 portfolio beta and dilute the Industrials/Tech concentration. Trend is intact (above 50d and 200d, +12.5% 6m), but RSI 72 signals short-term overbought — this is a ballast trade, not a momentum entry. Falsifiable: thesis breaks if VOO loses the 50d MA on rising volume while breadth deteriorates.",
+      "mode": "stable",
+      "target_entry": 0.0,
+      "max_allocation_pct": 12.0,
+      "added_at": "2026-05-29T07:46:01.372268+00:00",
+      "updated_at": "2026-05-29T07:46:01.372310+00:00"
+    },
+    {
+      "ticker": "RKLB",
+      "reason": "RKLB is a credible Neutron/space-launch story with real momentum, but the tape is parabolic: +247% in 6 months, RSI 80, 89% annualized vol, and price extended well above both MAs. Entering here means buying euphoria into an already high-beta book (3.52). The business thesis (Neutron debut, Electron cadence, end-to-end space systems) is intact, but reward/risk on entry today is poor — a 25–40% mean-reversion pullback is normal behavior for this name.",
+      "mode": "balanced",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-29T07:46:05.577996+00:00",
+      "updated_at": "2026-05-29T07:46:05.578023+00:00"
+    },
+    {
+      "ticker": "DRAM",
+      "reason": "DRAM is a thematic memory-chip ETF that has ripped +63.7% in a month with RSI at 72 and annualized vol of 73% — classic late-stage momentum in an AI/memory cycle trade. The thesis (memory pricing super-cycle, Micron/Sandisk leadership) is real, but entering after a parabolic move with no pullback is paying peak premium for a story everyone now knows.",
+      "mode": "balanced",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-29T07:46:16.159599+00:00",
+      "updated_at": "2026-05-29T07:46:16.159625+00:00"
+    },
+    {
+      "ticker": "IREN",
+      "reason": "IREN is a bitcoin-miner-turned-AI-neocloud riding the same thematic wave as APLD, with a fresh $1.6B GPU buy signaling real capacity build-out. Price is in a strong uptrend (above 50d/200d, +49% 1m) with RSI 57 — momentum is hot but not yet euphoric. The thesis breaks if AI capex demand cools, GPU deployments slip, or bitcoin rolls over, since revenue still leans on mining economics.",
+      "mode": "balanced",
+      "target_entry": 0.0,
+      "max_allocation_pct": 4.0,
+      "added_at": "2026-05-29T07:46:16.267518+00:00",
+      "updated_at": "2026-05-29T07:46:16.267527+00:00"
+    },
+    {
+      "ticker": "STX",
+      "reason": "Nearline HDD storage is the underappreciated AI-buildout pick-and-shovel — hyperscaler capex needs exabytes of cheap storage. Less crowded narrative than MU/SNDK, RSI 65 leaves room, and you likely haven't surfaced it yourself.",
+      "mode": "volatile",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-30T08:19:01.248388+00:00",
+      "updated_at": "2026-05-30T08:19:01.248437+00:00"
+    },
+    {
+      "ticker": "HPE",
+      "reason": "AI-server beneficiary with Juniper now closed — re-rating just starting (1m +50%). Lowest realized vol in the group (43%) and a 1.3% yield offer some ballast against your already high-beta book. A genuine diversifier inside the AI theme.",
+      "mode": "balanced",
+      "target_entry": 0.0,
+      "max_allocation_pct": 0.0,
+      "added_at": "2026-05-30T08:19:02.522397+00:00",
+      "updated_at": "2026-05-30T08:19:02.522413+00:00"
+    }
+  ],
+  "theses": {
+    "QQQ": {
+      "ticker": "QQQ",
+      "thesis": "QQQ is in a strong uptrend (+21% 6m, above both MAs) but RSI 72 signals short-term overbought conditions right when the investor is already concentrated in Tech via single names. Adding broad Nasdaq exposure here doesn't diversify the existing high-beta book — it stacks the same factor risk at a stretched entry.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "Tech-led drawdown from AI capex disappointment, rate re-acceleration, or geopolitical shock (Iran headlines already moving tape). Any of these hit QQQ and the investor's existing Tech/Industrials book simultaneously — correlated drawdown is the real danger.",
+      "last_decision": "HOLD",
+      "updated_at": "2026-05-29T07:45:55.729474+00:00"
+    },
+    "ONDS": {
+      "ticker": "ONDS",
+      "thesis": "Ondas is riding a powerful drone/defense narrative with Trump administration funding talk and a fresh Oppenheimer buy call, but the stock is extended: RSI 71, +39.6% in a month, 126% annualized vol, and a $6.6B market cap on a 147x P/E. The setup is momentum-driven, not fundamentals-driven, so entering here is chasing rather than buying conviction. Thesis breaks if Pentagon funding rumors fail to convert into an actual contract.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "Headline-driven name with no earnings support — any 'no deal' clarification, dilutive raise into the spike, broader risk-off, or simple momentum exhaustion can produce a 30-50% drawdown given 126% vol. RSI 71 says buyers are already crowded in.",
+      "last_decision": "WATCHLIST",
+      "updated_at": "2026-05-29T07:45:58.447732+00:00"
+    },
+    "APLD": {
+      "ticker": "APLD",
+      "thesis": "APLD has gone parabolic (+109% 6m, +52% 1m) on a genuine fundamental catalyst — the $7.5B hyperscaler lease that materially de-risks the AI campus buildout. But at beta 5.70 and 114% annualized vol, the stock is now pricing in flawless execution, and RSI 61 plus stretched extension above the 200d MA means new money is buying late. The thesis breaks if hyperscaler capex narrative cools or if execution/financing on the campus slips.",
+      "status": "review",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "Single-customer concentration on the new lease, heavy capex and likely dilution or debt to fund campuses, AI-infra sentiment reversal, and pure mechanical risk — a 5.7-beta name can give back 30-40% in a week on no company-specific news. No P/E support; valuation is entirely narrative.",
+      "last_decision": "TRIM",
+      "updated_at": "2026-05-28T20:29:07.006529+00:00"
+    },
+    "VOO": {
+      "ticker": "VOO",
+      "thesis": "VOO is a core S&P 500 exposure that would meaningfully lower this book's 3.52 portfolio beta and dilute the Industrials/Tech concentration. Trend is intact (above 50d and 200d, +12.5% 6m), but RSI 72 signals short-term overbought — this is a ballast trade, not a momentum entry. Falsifiable: thesis breaks if VOO loses the 50d MA on rising volume while breadth deteriorates.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "RSI 72 and record-high backdrop mean a 5-10% mean-reversion pullback is plausible near-term. Concentration risk inside the index itself (mega-cap tech) partially overlaps existing Tech exposure, so it diversifies less than it appears. A growth-to-value rotation or AI-capex unwind would hit both VOO and existing book together.",
+      "last_decision": "BUY CANDIDATE",
+      "updated_at": "2026-05-29T07:46:00.142360+00:00"
+    },
+    "RKLB": {
+      "ticker": "RKLB",
+      "thesis": "RKLB is a credible Neutron/space-launch story with real momentum, but the tape is parabolic: +247% in 6 months, RSI 80, 89% annualized vol, and price extended well above both MAs. Entering here means buying euphoria into an already high-beta book (3.52). The business thesis (Neutron debut, Electron cadence, end-to-end space systems) is intact, but reward/risk on entry today is poor — a 25–40% mean-reversion pullback is normal behavior for this name.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "RSI 80 + 90% vol = sharp drawdown risk on any launch delay, dilutive equity raise, or sector rotation out of space/AI-adjacent momentum. No earnings (P/E 0) means valuation is pure narrative — multiple compression hits hard. Industrials/Tech concentration already in book amplifies a sector unwind.",
+      "last_decision": "WATCHLIST",
+      "updated_at": "2026-05-29T07:46:04.517642+00:00"
+    },
+    "DRAM": {
+      "ticker": "DRAM",
+      "thesis": "DRAM is a thematic memory-chip ETF that has ripped +63.7% in a month with RSI at 72 and annualized vol of 73% — classic late-stage momentum in an AI/memory cycle trade. The thesis (memory pricing super-cycle, Micron/Sandisk leadership) is real, but entering after a parabolic move with no pullback is paying peak premium for a story everyone now knows.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "Memory is deeply cyclical — historically tops are violent and fast. RSI 72 + 64% one-month move sets up a 20-30% drawdown on any AI capex wobble or DRAM ASP rollover. Thin ETF (likely low AUM/liquidity despite the buzz), high expense drag, and concentration in a few names mean you can just buy MU directly with less basis risk.",
+      "last_decision": "WATCHLIST",
+      "updated_at": "2026-05-29T07:46:15.005690+00:00"
+    },
+    "SOFI": {
+      "ticker": "SOFI",
+      "thesis": "SoFi is a high-beta (2.13) fintech rebuilding after a sharp 6-month drawdown (-40%), now showing short-term momentum (+9.3% 1m, above 50d MA, RSI 59) but still below the 200d MA — classic mid-recovery setup that hasn't confirmed a trend change. At 37.7x earnings it's priced for continued growth in the tech platform (Galileo) and lending, so the thesis hinges on Q4/Q1 results validating revenue acceleration. CEO insider buying three times this year is a real positive signal, but doesn't override the broken longer-term trend.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "Credit quality deterioration in personal loans if consumer weakens; tech platform growth stays sluggish (the 'quiet story' staying quiet); valuation compression if rate cuts stall; 56% annualized vol means a bad print easily takes it down 15-20%.",
+      "last_decision": "HOLD",
+      "updated_at": "2026-05-29T23:59:48.611688+00:00"
+    },
+    "IREN": {
+      "ticker": "IREN",
+      "thesis": "IREN is a bitcoin-miner-turned-AI-neocloud riding the same thematic wave as APLD, with a fresh $1.6B GPU buy signaling real capacity build-out. Price is in a strong uptrend (above 50d/200d, +49% 1m) with RSI 57 — momentum is hot but not yet euphoric. The thesis breaks if AI capex demand cools, GPU deployments slip, or bitcoin rolls over, since revenue still leans on mining economics.",
+      "status": "active",
+      "strengthens": [],
+      "weakens": [],
+      "invalidation": "Beta 4.18 and 101% annualized vol — drawdowns of 30-50% are routine here. P/E 83 leaves no margin for execution slips. Bitcoin price reversal, dilutive equity raises to fund GPU capex, and AI-trade rotation are all real downside vectors. After +49% in a month, chasing here risks buying a local top.",
+      "last_decision": "BUY CANDIDATE",
+      "updated_at": "2026-05-29T07:46:15.222443+00:00"
+    }
+  },
+  "alerts": [],
+  "briefings": [
+    {
+      "id": "3e26a1186074",
+      "kind": "morning",
+      "title": "Morning Briefing: Concentration Risk Is the Headline",
+      "summary": "Your book is 57% in three high-beta momentum names (RKLB, APLD, IREN) and RKLB at RSI 78 with a 'short squeeze / SpaceX IPO hype' tape is the clearest risk signal in the portfolio. Nothing here is broken, but you're overexposed to a single factor (AI/space momentum) and underexposed to cash and ballast. Today is about trimming, not adding.",
+      "bullets": [
+        "RKLB is 30% of the portfolio (double your 15% cap), RSI 78, vol 89%, +254% over 6m, and headlines are explicitly calling out squeeze dynamics. This is the textbook moment to cut back to policy, not a conviction call against the name.",
+        "APLD (18%) is also over your 15% cap with beta 5.7 and 114% vol. Combined with RKLB and IREN, you have ~57% in names with beta >2 — that's a volatile-investor allocation, not balanced.",
+        "SOFI is the only red flag on fundamentals/tape: below both MAs, -41% 6m, and the stablecoin headlines look like narrative-chasing, not a catalyst. Small position so not urgent, but the thesis needs a check.",
+        "PHAT at $6 (0.3%) is portfolio noise — RSI 29, below both MAs, no near-term catalyst in the headlines. Either size up with a real thesis or close it; it's currently doing nothing.",
+        "Cash is $0. With three extended momentum names and zero dry powder, you can't respond to a pullback or rotate into the watchlist. This is a structural problem.",
+        "Watchlist: CIEN (RSI 51) remains the only non-extended balanced-profile idea on your list — a logical destination for trim proceeds if you want to stay invested. DELL is the other balanced fit.",
+        "QQQ (RSI 70) and VOO (RSI 66) are also extended but those are core holdings, not action items — leave them alone."
+      ],
+      "actions": [
+        "Trim RKLB from 30% toward your 15% cap — selling roughly half the position raises ~$300+ in cash and respects your own risk rule. This is the single highest-priority action.",
+        "Trim APLD modestly (e.g., 18% → 12-13%) to get under the cap and reduce aggregate high-beta exposure.",
+        "Park trim proceeds as cash for now; do NOT immediately redeploy into another extended name. If you want to put it to work this week, CIEN is the cleanest entry on your watchlist.",
+        "Decide on PHAT: either write down a one-line thesis and size to 2-3%, or close it. No reason to hold $6 of a name you're not tracking.",
+        "Do nothing on QQQ, VOO, IREN, SOFI, ONDS today — extended but not actionable, and SOFI/ONDS are too small to matter until you have a thesis update."
+      ],
+      "created_at": "2026-05-28T04:16:46.517445+00:00"
+    },
+    {
+      "id": "ab33d4759ce4",
+      "kind": "evening",
+      "title": "Evening Briefing: Concentration Risk Is Now the Story",
+      "summary": "Your portfolio is up materially but is increasingly a leveraged bet on AI/space momentum: RKLB, APLD, IREN and ONDS together are ~59% of the book, all high-beta, all extended. The single most important decision right now isn't what to buy — it's whether to trim RKLB (RSI 78, beta 2.31, 30% weight, +70% gain) before the next gap down decides for you.",
+      "bullets": [
+        "RKLB is your biggest risk, not your biggest winner. 30% weight exceeds your 15% single-position cap by 2x, RSI 78 is textbook overbought, and one headline frames the move as 'short squeeze / final act of SpaceX IPO hype.' Gains this size demand a trim regardless of thesis.",
+        "APLD + IREN + ONDS = 29% in extreme-beta names (betas 5.70, 4.18, 2.56). These move together on AI/crypto sentiment — treat them as one correlated bucket, not three diversifiers. A single risk-off day hits all of them.",
+        "RSI map: RKLB 78, QQQ 70, VOO 66, ONDS 59, IREN 56, APLD 56, SOFI 49, PHAT 29. Index ETFs are also stretched; this isn't a moment to add broad beta either.",
+        "SOFI is the one underwater/contrarian position — below both MAs, RSI 49, stablecoin launch is interesting but not a near-term earnings driver. Small enough (4.8%) to hold and watch; not a conviction add here.",
+        "PHAT at 0.3% is portfolio noise. RSI 29 is oversold but the position is too small to matter either way — decide if it's a real thesis or close it.",
+        "Watchlist read: CIEN (RSI 51) remains the only non-extended name in your memory. If you do redeploy trimmed RKLB capital, that's the lowest-chase entry. DELL fits your balanced profile better than adding more APLD/IREN exposure.",
+        "You have $0 cash. Any new buy requires a sell first — that constraint should sharpen the trim decision."
+      ],
+      "actions": [
+        "Trim RKLB from 30% to 15% (your stated cap). That's roughly $325 raised. This is not a thesis call; it's position-sizing discipline on an RSI-78 parabolic move.",
+        "Park the proceeds in cash overnight — do NOT immediately redeploy into another extended name. Let RSI cool somewhere before chasing.",
+        "Do nothing on QQQ, VOO, SOFI, IREN, APLD tonight. None require action; all are either core holds or already-sized speculative bets.",
+        "Close or commit on PHAT this week — 0.3% is a decision you've been avoiding. If you can't articulate the thesis in one sentence, sell it.",
+        "If you want to redeploy trimmed capital tomorrow, CIEN (RSI 51, balanced-appropriate) is the cleanest entry from your watchlist. Avoid adding to anything already in your book."
+      ],
+      "created_at": "2026-05-28T04:17:14.165812+00:00"
+    },
+    {
+      "id": "efc2974f02e3",
+      "kind": "evening",
+      "title": "Evening Briefing: Concentration Risk Is the Story",
+      "summary": "Your book is up big on a narrow AI/space momentum trade — RKLB, APLD, IREN, and ONDS together drive most of the P&L, and RKLB alone is 30% with an RSI of 78. The setup has worked, but you're now running well above your stated 15% single-position cap and leaning heavily volatile for a 'balanced' mandate. Tomorrow's priority is risk management, not new ideas.",
+      "bullets": [
+        "RKLB is your biggest problem in a good way: 30% weight (2x your stated max), RSI 78, +91% in a month, 89% annualized vol. The thesis (SpaceX IPO buzz, 52-week highs) is sentiment-driven, not fundamental — one bad headline retraces 20% easily.",
+        "APLD (18%) + IREN (9%) + ONDS (2%) = another ~29% in high-beta AI infrastructure names (betas 2.6–5.7). Combined with RKLB, ~59% of the portfolio is in names that will move together on any AI/risk-off day. This is effectively one bet.",
+        "Core ballast (QQQ 25% + VOO 10%) is healthy and doing its job, but QQQ RSI 70 means the index itself is extended — don't count on it to cushion a tech drawdown.",
+        "SOFI is the only real laggard (-11% 1m, below both MAs, RSI 49). Small position so not urgent, but thesis (tech platform revenue) hasn't shown up in price — give it a defined leash.",
+        "PHAT at 0.3% is portfolio noise — RSI 29, below MAs, no catalyst in the headlines. Either size up on a real thesis or close it.",
+        "Cash at $1,101 (50% of book) is a genuine asset here. You don't need to deploy it into an extended tape; watchlist names (DELL, MU on pullback, INTC) are better balanced-profile fits than adding to current winners.",
+        "Watchlist read: DELL is the cleanest balanced-profile add when you're ready — backlog-driven AI exposure without the 100%+ vol of what you already own. MU needs a pullback from RSI 71 before it's interesting."
+      ],
+      "actions": [
+        "Trim RKLB back toward your 15% cap tomorrow — selling ~half the position (~$330) locks in gains, respects your own rules, and doesn't kill the thesis. This is the single highest-value action.",
+        "Consider trimming APLD modestly (e.g., to ~12%) to reduce correlated AI-infra exposure; RSI 56 means you're not selling into a blowoff, just rebalancing.",
+        "Do nothing on QQQ/VOO — they're your anchors and the weights are reasonable.",
+        "Close PHAT — position is too small to matter and you have no edge on the name.",
+        "Hold cash; do not initiate DELL or MU today. Set alerts: DELL on any 5% pullback, MU when RSI drops below 60."
+      ],
+      "created_at": "2026-05-28T05:53:37.370141+00:00"
+    },
+    {
+      "id": "c2b78217ce2a",
+      "kind": "morning",
+      "title": "Morning Brief: Concentration Risk Is the Story",
+      "summary": "Your book is up sharply but dangerously concentrated in high-beta AI/space momentum — RKLB, APLD, and IREN together are 57% of equity, all with betas 2-6 and parabolic 6m returns. RKLB at RSI 78 and +254% over six months is the single biggest risk in the portfolio, not the biggest opportunity. Today's job is risk management, not adding exposure.",
+      "bullets": [
+        "RKLB is 30% of portfolio (double your 15% cap) with RSI 78, vol 89%, and headlines explicitly tagging it as a retail/SpaceX-IPO sentiment trade. This is the textbook moment to trim, not a thesis call against the company.",
+        "Aggregate beta is extreme: RKLB (2.31) + APLD (5.70) + IREN (4.18) + ONDS (2.56) = ~59% of equity in names that will move 2-5x the market on any risk-off day. A 'balanced' profile this is not.",
+        "APLD and IREN both have real catalysts (15-yr hyperscaler lease, $1.6B Nvidia Blackwell deal) — these are story-supported moves, not pure froth. Less urgent to trim than RKLB, but position sizing still matters.",
+        "SOFI is the only laggard (-11.9% 1m, below both MAs, RSI 49). Small position, no urgent thesis break, but no reason to add either — tech-platform revenue story is slow-burn.",
+        "PHAT is a 0.3% stub at RSI 29 with no clear catalyst in headlines. Either size up to something meaningful on a real thesis or close it — currently it's just noise.",
+        "Cash is 50% of account ($1,101). That's a feature right now, not a bug, given how extended the equity sleeve is. Don't feel pressure to deploy into RSI-70+ names.",
+        "Watchlist fit for a balanced book: DELL and INTC are the cleanest adds — actual fundamentals, lower beta, AI exposure without paying momentum prices. MU is attractive but wait for RSI to cool."
+      ],
+      "actions": [
+        "Trim RKLB down to roughly your 15% cap (~$330) — lock in part of the +70% gain and bring position sizing back inside your own stated rules. This is the single highest-priority action.",
+        "Do NOT add to APLD, IREN, or ONDS today. They're working; let them work without adding concentration risk.",
+        "Decide on PHAT: either write a one-line thesis and size to at least 2-3%, or close it and redeploy. Stubs serve no one.",
+        "Put a limit-buy alert on DELL and INTC at modest pullbacks rather than chasing — these are the balanced-profile fits from your watchlist. No market orders today.",
+        "Hold the cash. With three positions at RSI 56-78 and broad indices at RSI 66-70, patience is a position."
+      ],
+      "created_at": "2026-05-28T05:53:49.721753+00:00"
+    },
+    {
+      "id": "fcf02776cedb",
+      "kind": "morning",
+      "title": "Morning Briefing: Concentrated, Hot, and Overweight Risk",
+      "summary": "Your $2,187 book is heavily skewed to high-beta, momentum-extended names — RKLB, APLD, and IREN alone are 57% of the portfolio, all with betas above 2 and RSIs that have run hot. The setup has worked beautifully (RKLB +69%, APLD +64%, ONDS +84%), but balanced-risk discipline says today is about trimming, not adding.",
+      "bullets": [
+        "RKLB at 29.7% is over your 15% max single-position limit, RSI 79, +89.7% in a month, beta 2.31 — this is the single biggest risk in the book regardless of conviction.",
+        "High-beta cluster (RKLB + APLD + IREN + ONDS) = ~59% of portfolio, all extended above 50d/200d MAs with annualized vol 89–125%. One AI/space sentiment reversal hits the whole book at once.",
+        "APLD's $7.5B hyperscaler lease is a real fundamental catalyst, not just momentum — that one earns its weight more than the others, though still extended.",
+        "QQQ (25%) + VOO (10%) give you 35% in index ballast, which is the only thing keeping this from being a pure speculation sleeve. Both also at RSI 69–71, so even your 'safe' bucket is stretched.",
+        "SOFI is the only loser on trend (below 50d and 200d, 6m -44%) but RSI 49 and stabilizing — not a sell, but not a place to add until it reclaims the 50d.",
+        "PHAT at 0.3% is portfolio noise; either size up on a real thesis or close it.",
+        "Watchlist note: DELL and MU are the cleanest balanced-profile adds when you raise cash — neither requires chasing a 79 RSI."
+      ],
+      "actions": [
+        "Trim RKLB down to ~15% (sell ~$325 worth) today — this is risk management, not a call on the thesis. Lock in part of the +69%.",
+        "Hold APLD and IREN; do not add at current RSI/extension. Let them work or set mental stops below the 50d MA.",
+        "Close PHAT (~$6) — it's not doing anything for you at that size. Free the slot.",
+        "Park trim proceeds in cash, not into another hot name. Wait for a pullback in MU or DELL (watchlist) for a balanced redeployment.",
+        "Do nothing on QQQ, VOO, SOFI, ONDS — sizing is fine, no edge in moving them today."
+      ],
+      "created_at": "2026-05-28T13:31:05.468718+00:00"
+    },
+    {
+      "id": "18652aa3f6e5",
+      "kind": "evening",
+      "title": "Evening Brief: High-beta book, multiple names overheated",
+      "summary": "Your book is running ~3.5 beta with RKLB, APLD, and IREN driving most of the risk and most of the gains. Three of your top holdings now sit at RSI 70+ on parabolic 6-month moves — this is a trim-and-protect setup, not an add setup. Best action tomorrow is mechanical risk reduction, not new buys.",
+      "bullets": [
+        "RKLB is the dominant risk: 29.6% weight (double your 15% cap), RSI 80, +247% 6m, beta 2.31, vol 89%. One name now drives your portfolio's daily P&L. This is the single biggest issue on the screen.",
+        "APLD at 18.3% is also over your 15% cap, RSI 61 but +109% 6m on a real but now priced-in $7.5B lease catalyst. Beta 5.7 / vol 114% means a -30% week needs no news.",
+        "IREN (8.9%, beta 4.18, vol 101%) plus ONDS (beta 2.56, vol 126%) stack more high-beta exposure on top — your aggregate book beta ~3.5 is far above 'balanced.'",
+        "QQQ and VOO (combined ~36%) are your only ballast and both are extended (RSI 72). They cushion less than usual into a tech pullback.",
+        "Cash is negative ($-6) — no dry powder to buy any dip, which compounds the concentration risk.",
+        "Watchlist offers concrete rebalance targets if you want to stay in the AI theme with less froth: DELL, MU on pullback, MPC/TGT for genuine sector diversification.",
+        "Headlines today are sentiment, not catalysts — nothing in the news flow changes a thesis tonight."
+      ],
+      "actions": [
+        "Tomorrow: trim RKLB back toward your 15% cap. Selling ~$330 (roughly half the position) takes it from 29.6% → ~15% and restores cash.",
+        "Trim APLD modestly to ≤15% (~$73 trim). Thesis intact, position size isn't.",
+        "Do NOT add to IREN, ONDS, or DRAM at current RSI levels — let them breathe.",
+        "Park trim proceeds in cash, not a new high-beta name. If you want to redeploy this week, MPC or DELL fit the 'lower beta, real earnings' gap in your book.",
+        "No action needed on QQQ, VOO, SOFI tonight — they're not the problem."
+      ],
+      "created_at": "2026-05-28T23:31:16.675505+00:00"
+    },
+    {
+      "id": "7a571324dfa4",
+      "kind": "morning",
+      "title": "Morning Briefing: Book is Hot, Beta is Hotter",
+      "summary": "Your $2,156 book is running a 3.52 beta with seven of nine positions overbought (RSI 60-80) and zero cash. Gains are real (+60% RKLB, +61% APLD, +105% ONDS) but every name is extended into the same AI/momentum factor. Today's job is risk reduction and dry-powder creation, not new buys.",
+      "bullets": [
+        "Concentration is the headline risk: RKLB (28.7%) + APLD (18.7%) = 47% of book in two parabolic names with combined beta near 8. A single AI/space sentiment shift draws down nearly half the portfolio in one session.",
+        "RKLB is the most extended position — RSI 67 after +229% in 6 months, 89% vol, no earnings support. Sitting on +60.5% gains in a name where 25-40% mean reversion is baseline behavior.",
+        "APLD thesis is fundamentally improved by the $7.5B hyperscaler lease, but at beta 5.70 and 113% vol, position is now pricing flawless execution. +61% unrealized is real money that can evaporate in a week on no news.",
+        "QQQ + VOO (36.6%) are both RSI ~67 and overlap heavily with your single-name tech exposure — they're not diversifying what you think they're diversifying. VOO still helps beta math; QQQ doubles down on factor risk.",
+        "Cash is $0. With every position overbought, you have no ammunition for the pullback you're statistically owed.",
+        "IREN and SOFI are the least-stretched momentum names (RSI 52 and 68) but neither is a buy here — IREN is mid-move, SOFI still below 200d MA.",
+        "Watchlist diversifiers (MPC, TGT, DELL) remain the right structural answer for cutting portfolio beta — not chased, not extended, and fill real sector gaps."
+      ],
+      "actions": [
+        "Trim RKLB by ~⅓ (bring to ~18-19% weight): locks in gains, reduces single-name risk, raises cash for the next drawdown. This is the highest-leverage action today.",
+        "Trim APLD by ~25% to get under 15% single-position cap you've set for yourself. You're over your own rule.",
+        "Do NOT add to QQQ, VOO, DRAM, or ONDS today — all overbought and all stack existing factor exposure.",
+        "Park trim proceeds in cash; do not redeploy into another momentum name. Wait for a watchlist setup (MPC pullback to 50d, TGT post-earnings, DELL on weakness) to rebuild balance.",
+        "Set mental stops: RKLB loss of 50d MA, APLD break below $42, ONDS any 'no Pentagon deal' headline — pre-decide the exit so you don't freeze."
+      ],
+      "created_at": "2026-05-29T13:31:23.327876+00:00"
+    },
+    {
+      "id": "f105fae05145",
+      "kind": "evening",
+      "title": "Evening Brief: Book is Hot, Hedge the Beta",
+      "summary": "Portfolio is up materially but running a ~3.5 beta with five names sporting RSI 67–71 and three at 89%+ annualized vol. The setup is profitable and dangerous in the same breath — risk management, not new buying, is the edge right now.",
+      "bullets": [
+        "Concentration risk is the headline: RKLB (29%) + APLD (18%) = 47% of book in two parabolic, no-earnings, beta-2.3-to-5.7 names. Both extended, both correlated to AI/space narrative — one sentiment unwind hits together.",
+        "Overbought tape is broad: RKLB RSI 71, QQQ 68, VOO 69, SOFI 70, ONDS 71, DRAM 67. Every sleeve is stretched simultaneously — this is not a 'buy the dip' moment, it's a 'don't add' moment.",
+        "RKLB at +62.7% unrealized on a single position above your 15% max sizing rule. This is the cleanest, most obvious trim — pure position-sizing discipline, not a thesis call.",
+        "Zero cash. No dry powder to deploy if the AI/space trade gives back the routine 20–30% it's capable of. Trimming winners also funds optionality.",
+        "Ballast is thin: VOO + cash-equivalents = ~11% of book. Even VOO is overbought; any add should be staged, not lump-sum.",
+        "IREN and SOFI are the least-stretched momentum names (RSI 52/70 but SOFI still below 200d) — no action needed, but they're the survivors if a rotation hits the parabolic names harder.",
+        "No fresh catalysts in today's headlines that change any thesis — tape is drifting on Dell/AI afterglow and Iran ceasefire bets."
+      ],
+      "actions": [
+        "Trim RKLB from 29% → 15% (sell ~$300). Pure sizing discipline; lock gains, raise cash, reduce single-name blow-up risk.",
+        "Trim APLD from 18% → 12% (sell ~$130). Same logic — momentum-priced, single-customer lease concentration, 5.7 beta.",
+        "Do NOT add QQQ, VOO, DRAM, or ONDS here. All overbought; wait for RSI <55 or a 50d MA retest.",
+        "Park trim proceeds (~$430) in cash for now. If VOO pulls back 5%+, stage in over two tranches as portfolio-beta ballast.",
+        "Re-check MPC or TGT from watchlist only after RKLB/APLD trims execute — diversifiers only work if you actually fund them."
+      ],
+      "created_at": "2026-05-29T23:30:35.410348+00:00"
+    }
+  ],
+  "updated_at": "2026-05-30T08:19:02.927736+00:00"
+}
