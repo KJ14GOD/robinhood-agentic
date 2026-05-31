@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Brain · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=10" />
+<link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
 <div id="app">
@@ -145,16 +145,55 @@
         <h2>Research memory</h2>
         <p class="sub" id="memSub">What the brain has concluded and is still tracking — its reasoning, recalled instantly.</p>
       </div>
+
+      <div class="section-head"><h3>Strategy missions</h3></div>
+      <p class="sc-cap">Standing themes the brain tracks on its own — it builds each roster, keeps it current, and labels every name without being asked.</p>
+      <div class="mission-new">
+        <input id="missionInput" placeholder="Track a theme — e.g. defense stocks, stable AI exposure, data-center power" />
+        <select id="missionMode" title="Risk flavor">
+          <option value="any">Any</option>
+          <option value="stable">Stable</option>
+          <option value="volatile">Volatile</option>
+        </select>
+        <button class="primary" id="startMission">Start</button>
+      </div>
+      <div id="missionList"></div>
+
+      <div class="section-head" style="margin-top:32px"><h3>Tracked theses</h3></div>
       <div id="memBody"></div>
+
+      <div class="section-head" style="margin-top:32px"><h3>Recent deep dives</h3></div>
+      <p class="sc-cap">Full cited research reports the brain has run. Open one to re-read its plan, bull/bear, and self-critique.</p>
+      <div id="deepLog"></div>
     </section>
 
     <!-- SHADOW -->
     <section id="shadow" class="panel">
-      <div class="row between"><h2>Shadow track record</h2><button class="primary" id="runScore">Refresh</button></div>
-      <p class="sub">Every recommendation is logged as a paper trade — the honest scorecard before you trust it with money.</p>
-      <div class="statline" id="scoreStats"></div>
+      <div class="row between"><h2>Shadow track record</h2><button class="ghost" id="runScore">Refresh</button></div>
+      <p class="sub">Every recommendation — from the analyst, discovery, and the assistant — is logged as a paper trade and graded against the market. The honest scorecard, before you trust it with real money.</p>
+
+      <div class="sc-read" id="scoreRead"></div>
+
+      <div class="sc-cuts">
+        <div class="sc-cut">
+          <div class="section-head"><h3>Conviction calibration</h3></div>
+          <p class="sc-cap">Do high-conviction calls actually outperform low-conviction ones?</p>
+          <table class="grid sc-grid"><thead><tr>
+            <th>Conviction</th><th>Calls</th><th>Win</th><th>Return</th><th>vs SPY</th>
+          </tr></thead><tbody id="scoreCalib"></tbody></table>
+        </div>
+        <div class="sc-cut">
+          <div class="section-head"><h3>By engine</h3></div>
+          <p class="sc-cap">Which part of the brain has actually had edge.</p>
+          <table class="grid sc-grid"><thead><tr>
+            <th>Source</th><th>Calls</th><th>Win</th><th>Return</th><th>vs SPY</th>
+          </tr></thead><tbody id="scoreSource"></tbody></table>
+        </div>
+      </div>
+
+      <div class="section-head"><h3>Every call</h3></div>
       <table class="grid"><thead><tr>
-        <th>When</th><th>Ticker</th><th>Action</th><th>Conv</th><th>Entry</th><th>Now</th><th>Return</th><th>Source</th>
+        <th>When</th><th>Ticker</th><th>Call</th><th>Conv</th><th>Entry</th><th>Now</th><th>Return</th><th>vs SPY</th><th>Source</th>
       </tr></thead><tbody id="scoreRows"></tbody></table>
     </section>
 
@@ -171,6 +210,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=10"></script>
+<script src="/static/app.js?v=14"></script>
 </body>
 </html>

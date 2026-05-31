@@ -13,12 +13,13 @@ from __future__ import annotations
 import json
 from typing import Callable, Iterator
 
-from . import llm, profile_store, research_state
+from . import llm, profile_store, research_state, shadow
 from .data.news import get_news
 from .data.prices import get_chart, get_signals, screen_universe
 from .data.universe import screening_universe
 from .db import repository as db_repo
 from .engines.discovery import _flavor_ok, _screen_score
+from .models import TradeTicket
 from .portfolio import get_portfolio
 
 MAX_STEPS = 12
@@ -31,6 +32,7 @@ You are operating in AGENT MODE with tools. Work like a real analyst:
 - When hunting for ideas, screen the market, then pull signals/news on the standouts.
 - When price action matters, fetch a chart and use it in the answer.
 - Save only researched, genuinely useful ideas to watchlist memory; do not save every ticker mentioned.
+- When you reach a real, decision-useful call on a ticker (a buy/add/hold/trim/sell with a conviction level), log it once with log_recommendation so the brain builds an honest, measurable track record. Never log passing mentions or hypotheticals.
 - Chain tools as needed. Be efficient: don't pull data you won't use.
 - End with a clear, decision-useful answer grounded in what the tools returned.
 - Format final answers as:
@@ -140,6 +142,26 @@ TOOLS = [
             "required": ["ticker", "reason"],
         },
     },
+    {
+        "name": "log_recommendation",
+        "description": "Record a concrete recommendation to the shadow track record so it can be "
+                       "graded later against the market and its sector. Use ONLY when you've reached "
+                       "a real, decision-useful call on a ticker (a buy/add/hold/trim/sell with a "
+                       "conviction level) — never for passing mentions or hypotheticals. This is how "
+                       "the brain builds an honest, measurable record of whether its calls actually work.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "action": {"type": "string", "enum": ["buy", "add", "hold", "trim", "sell", "watch"]},
+                "conviction": {"type": "integer", "description": "1=weak, 10=table-pounding"},
+                "thesis": {"type": "string", "description": "The actual reasoning, 1-3 sentences."},
+                "catalyst": {"type": "string", "description": "What could make it move, and roughly when."},
+                "risks": {"type": "string", "description": "What would break the thesis."},
+            },
+            "required": ["ticker", "action", "conviction", "thesis"],
+        },
+    },
 ]
 
 
@@ -211,6 +233,25 @@ def _tool_save_watchlist(ticker: str, reason: str, mode: str = "balanced",
     return f"Saved {ticker.upper()} to watchlist as {mode}{size}: {reason}"
 
 
+def _tool_log_recommendation(ticker: str, action: str, conviction: int, thesis: str,
+                             catalyst: str = "", risks: str = "") -> str:
+    tkr = ticker.upper().strip()
+    if shadow.has_open(tkr, source="assistant"):
+        return (f"{tkr} already has an open recommendation in the track record — "
+                "leaving it; not double-logging.")
+    ticket = TradeTicket(
+        ticker=tkr, action=action, conviction=int(conviction),
+        thesis=thesis, catalyst=catalyst or "", risks=risks or "",
+    )
+    signals = get_signals(tkr)
+    trade = shadow.log_recommendation(
+        ticket, source="assistant", profile=profile_store.load_profile(), signals=signals,
+    )
+    return (f"Logged {tkr} as {ticket.decision_label} (conviction {ticket.conviction}) to the "
+            f"shadow track record at ${trade.entry_price:.2f}, anchored to SPY"
+            f"{(' and ' + trade.sector_etf) if trade.sector_etf else ''}.")
+
+
 _DISPATCH: dict[str, Callable[..., str]] = {
     "get_stock_signals": _tool_get_signals,
     "get_stock_news": _tool_get_news,
@@ -221,6 +262,7 @@ _DISPATCH: dict[str, Callable[..., str]] = {
     "get_recent_activity": _tool_activity,
     "get_stock_chart": _tool_chart,
     "save_watchlist_item": _tool_save_watchlist,
+    "log_recommendation": _tool_log_recommendation,
 }
 
 
@@ -248,6 +290,21 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
     messages: list[dict] = list(history or [])
     messages.append({"role": "user", "content": message})
 
+    # Accumulate a compact, faithful trace so the whole loop is persisted to
+    # agent_runs as an audit trail (what the brain looked at, and why it answered).
+    trace: list[dict] = []
+    tools_used: list[str] = []
+
+    def _persist(answer: str) -> None:
+        try:
+            db_repo.save_agent_run(
+                query=message, answer=answer, kind="chat",
+                steps=trace, tools_used=",".join(dict.fromkeys(tools_used)),
+                model=llm.MODEL,
+            )
+        except Exception:  # noqa: BLE001 — the audit trail must never break the answer
+            pass
+
     for _ in range(MAX_STEPS):
         resp = client.messages.create(
             model=llm.MODEL,
@@ -264,26 +321,33 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
         # surface any interim text the model wrote alongside its tool calls
         for b in resp.content:
             if b.type == "text" and b.text.strip():
+                trace.append({"type": "note", "text": b.text.strip()})
                 yield {"type": "note", "text": b.text.strip()}
 
         if resp.stop_reason != "tool_use" or not tool_uses:
             final = "".join(b.text for b in resp.content if b.type == "text")
+            _persist(final)
             yield {"type": "answer", "text": final}
             return
 
         results = []
         for tu in tool_uses:
+            tools_used.append(tu.name)
+            trace.append({"type": "tool", "name": tu.name, "input": tu.input})
             yield {"type": "tool", "name": tu.name, "input": tu.input}
             out = _execute(tu.name, tu.input)
             if tu.name == "get_stock_chart":
                 chart = get_chart(tu.input.get("ticker", ""), tu.input.get("span", "3m"))
                 yield {"type": "chart", "chart": chart.model_dump()}
-            yield {"type": "tool_result", "name": tu.name,
-                   "summary": out[:240] + ("…" if len(out) > 240 else "")}
+            summary = out[:240] + ("…" if len(out) > 240 else "")
+            trace.append({"type": "tool_result", "name": tu.name, "summary": summary})
+            yield {"type": "tool_result", "name": tu.name, "summary": summary}
             results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out})
         messages.append({"role": "user", "content": results})
 
-    yield {"type": "answer", "text": "(Reached the step limit — here's what I found above.)"}
+    limit_msg = "(Reached the step limit — here's what I found above.)"
+    _persist(limit_msg)
+    yield {"type": "answer", "text": limit_msg}
 
 
 def run(message: str, history: list[dict] | None = None) -> dict:

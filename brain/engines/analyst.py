@@ -34,6 +34,6 @@ on why it fits (or how to size it to fit) their personality. Be honest about con
     ticket = llm.parse(prompt, TradeTicket, max_tokens=2500)
     ticket.ticker = ticker
     if log_shadow:
-        shadow.log_recommendation(ticket, source="analyst")
+        shadow.log_recommendation(ticket, source="analyst", profile=profile, signals=signals)
     research_state.update_from_ticket(ticket)
     return ticket

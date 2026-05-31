@@ -63,6 +63,29 @@ class TrendSignals:
         )
 
 
+# yfinance sector name -> SPDR sector ETF. Lets shadow logging anchor a
+# recommendation to its sector benchmark, so a pick can be graded against its
+# own sector and not just the broad market.
+SECTOR_ETF: dict[str, str] = {
+    "Technology": "XLK",
+    "Financial Services": "XLF",
+    "Healthcare": "XLV",
+    "Consumer Cyclical": "XLY",
+    "Consumer Defensive": "XLP",
+    "Energy": "XLE",
+    "Industrials": "XLI",
+    "Basic Materials": "XLB",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE",
+    "Communication Services": "XLC",
+}
+
+
+def sector_etf(sector: str) -> str:
+    """The SPDR sector ETF for a yfinance sector name, or '' if unmapped."""
+    return SECTOR_ETF.get((sector or "").strip(), "")
+
+
 def clean_ticker(ticker: str) -> str:
     """Normalize a symbol for yfinance.
 

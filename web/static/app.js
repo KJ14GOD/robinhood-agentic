@@ -100,7 +100,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   t.classList.add("active"); $("#" + t.dataset.tab).classList.add("active");
   if (t.dataset.tab === "portfolio" && STATE) loadPortfolioChart();
   if (t.dataset.tab === "activity" && STATE) loadActivity();
-  if (t.dataset.tab === "memory" && STATE) renderMemory();
+  if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
 }));
 
 // ---------- state / header ----------
@@ -501,6 +501,149 @@ async function refreshThesis(ticker, btn) {
 }
 window.refreshThesis = refreshThesis;
 
+// ---------- strategy missions ----------
+const M_LABEL_ORDER = { BUY: 0, WATCH: 1, WAIT: 2, REJECT: 3 };
+let MISSIONS = [];
+
+function missionRoster(m) {
+  const cands = (m.candidates || []).slice().sort((a, b) =>
+    (M_LABEL_ORDER[a.label] ?? 9) - (M_LABEL_ORDER[b.label] ?? 9) || (b.conviction - a.conviction));
+  if (!cands.length) return `<p class="mission-empty">No candidates yet — try Refresh.</p>`;
+  return `<div class="mission-roster">` + cands.map((c) => `
+    <div class="mrow">
+      <span class="m-tkr" onclick="analyze('${esc(c.ticker)}')">${esc(c.ticker)}</span>
+      <span class="m-label ${(c.label || "watch").toLowerCase()}">${esc(c.label || "WATCH")}</span>
+      <span class="m-conv">${c.conviction}</span>
+      <span class="m-reason">${esc(c.reason || "")}</span>
+    </div>`).join("") + `</div>`;
+}
+
+function renderMissions() {
+  const box = $("#missionList");
+  if (!box) return;
+  const visible = MISSIONS.filter((m) => m.status !== "archived");
+  if (!visible.length) {
+    box.innerHTML = `<p class="mission-empty">No missions yet. Name a theme above and the brain will build and track a roster for it.</p>`;
+    return;
+  }
+  box.innerHTML = visible.map((m) => {
+    const paused = m.status === "paused";
+    const n = (m.candidates || []).length;
+    const when = m.last_classified_at ? localTime(m.last_classified_at) : "just now";
+    return `<div class="mission ${paused ? "paused" : ""}" data-id="${m.id}">
+      <div class="mission-head">
+        <div class="mission-id">
+          <span class="mission-title">${esc(m.title)}</span>
+          ${m.theme ? `<span class="mission-theme">${esc(m.theme)} · ${esc(m.mode)}</span>` : ""}
+          ${paused ? `<span class="mission-theme">paused</span>` : ""}
+        </div>
+        <div class="mission-right">
+          <span class="mission-when">${n} name${n === 1 ? "" : "s"} · ${when}</span>
+          <div class="mission-ctrl">
+            <button class="linklike" onclick="runMission('${m.id}', this)">Refresh</button>
+            <button class="linklike" onclick="toggleMission('${m.id}', '${paused ? "active" : "paused"}')">${paused ? "Resume" : "Pause"}</button>
+            <button class="linklike" onclick="archiveMission('${m.id}')">Archive</button>
+          </div>
+        </div>
+      </div>
+      ${missionRoster(m)}
+    </div>`;
+  }).join("");
+}
+
+async function loadMissions() {
+  try {
+    const r = await api("missions");
+    MISSIONS = r.missions || [];
+  } catch (e) {
+    MISSIONS = [];
+  }
+  renderMissions();
+}
+
+async function startMission() {
+  const input = $("#missionInput");
+  const title = (input.value || "").trim();
+  if (!title) { toast("Name a theme to track"); return; }
+  const btn = $("#startMission");
+  busy(btn, true);
+  toast("Building the roster…");
+  try {
+    const m = await api("missions", { title, mode: $("#missionMode").value });
+    if (m && m.error) { toast(m.error); }
+    else { input.value = ""; await loadMissions(); toast(`Mission started: ${m.title}`); }
+  } catch (e) {
+    toast("Could not start mission");
+  } finally {
+    busy(btn, false);
+  }
+}
+
+async function runMission(id, btn) {
+  if (btn) busy(btn, true);
+  toast("Re-checking the roster…");
+  try {
+    await api(`missions/${id}/run`, {});
+    await loadMissions();
+    toast("Mission refreshed");
+  } catch (e) {
+    toast("Could not refresh mission");
+    if (btn) busy(btn, false);
+  }
+}
+window.runMission = runMission;
+
+async function toggleMission(id, status) {
+  try {
+    await api(`missions/${id}/status`, { status });
+    await loadMissions();
+  } catch (e) { toast("Could not update mission"); }
+}
+window.toggleMission = toggleMission;
+
+async function archiveMission(id) {
+  if (!confirm("Archive this mission? It stops tracking and disappears from view.")) return;
+  try {
+    await api(`missions/${id}/status`, { status: "archived" });
+    await loadMissions();
+    toast("Mission archived");
+  } catch (e) { toast("Could not archive mission"); }
+}
+window.archiveMission = archiveMission;
+
+$("#startMission").onclick = startMission;
+$("#missionInput").addEventListener("keydown", (e) => { if (e.key === "Enter") startMission(); });
+
+// ---------- deep research log (Memory tab) ----------
+let DEEP_REPORTS = [];
+function openDeepLog(i) { const rp = DEEP_REPORTS[i]; if (rp) showDeepReport(rp); }
+window.openDeepLog = openDeepLog;
+
+async function loadDeepLog() {
+  const box = $("#deepLog");
+  if (!box) return;
+  let runs = [];
+  try { const r = await api("agent_runs?kind=deep_research&limit=15"); runs = r.runs || []; } catch (e) {}
+  const rows = runs.map((run) => {
+    const step = (run.steps || []).find((s) => s.type === "report");
+    return step && step.report ? { report: step.report, at: run.created_at } : null;
+  }).filter(Boolean);
+  DEEP_REPORTS = rows.map((r) => r.report);
+  if (!rows.length) {
+    box.innerHTML = `<p class="mission-empty">No deep dives yet. Open any ticker and run Deep research.</p>`;
+    return;
+  }
+  box.innerHTML = `<div class="deeplog">` + rows.map((row, i) => {
+    const rp = row.report;
+    return `<button class="deeplog-row" onclick="openDeepLog(${i})">
+      <span class="m-tkr">${esc(rp.ticker)}</span>
+      <span class="pill ${rp.action}">${esc(rp.verdict || rp.action)}</span>
+      <span class="dl-conv">conv ${rp.conviction}/10</span>
+      <span class="dl-when">${(row.at || "").slice(0, 10)}</span>
+    </button>`;
+  }).join("") + `</div>`;
+}
+
 function renderBriefings(items) {
   const box = $("#briefings");
   if (!box) return;
@@ -657,6 +800,52 @@ async function deepAnalyze(ticker, btn) {
   showAnalysisModal(ticker, t);
 }
 window.deepAnalyze = deepAnalyze;
+
+// Deep research — the heavy, cited, self-critiqued dive, shown as a report card.
+async function deepResearch(ticker) {
+  showModal(`<h2 style="margin-bottom:6px">Deep research · ${esc(ticker)}</h2>
+    <p class="muted" style="font-size:13px;margin:0 0 16px">Planning, building the bull and bear cases, then self-critiquing before it concludes.</p>
+    <div class="loading"><span class="spin"></span> Researching ${esc(ticker)}… this takes a bit.</div>`);
+  try {
+    const r = await api("deep_research", { ticker });
+    if (r && r.error) { showModal(`<h2>${esc(ticker)}</h2><p class="muted">${esc(r.error)}</p>`); return; }
+    showDeepReport(r);
+    try { STATE = await api("state"); if ($("#memory").classList.contains("active")) { renderMemory(); loadDeepLog(); } } catch (e) {}
+  } catch (e) {
+    showModal(`<h2>Deep research · ${esc(ticker)}</h2><p class="muted">Research failed — try again in a moment.</p>`);
+  }
+}
+window.deepResearch = deepResearch;
+
+function drList(items) {
+  return `<ul class="dr-list">${(items || []).map((x) => `<li>${esc(x)}</li>`).join("") || `<li class="muted">—</li>`}</ul>`;
+}
+
+function showDeepReport(r) {
+  const flag = r.changed ? `<span class="dr-flag">revised after self-critique</span>` : "";
+  showModal(`<div class="card dr" style="border:none;box-shadow:none;padding:0">
+    <div class="dr-head">
+      <div class="dr-id"><h3>${esc(r.ticker)}</h3><span class="pill ${r.action}">${esc(r.verdict || r.action)}</span></div>
+      <span class="dr-conv">conviction ${r.conviction}/10</span>
+    </div>
+    <div class="bar" style="margin:10px 0 8px"><i style="width:${(r.conviction || 0) * 10}%"></i></div>
+    ${r.note || flag ? `<p class="dr-note">${esc(r.note || "")}${flag}</p>` : ""}
+
+    <span class="lbl">Research plan</span>${drList(r.plan)}
+    <div class="dr-cols">
+      <div><span class="dos-lbl up">Bull case</span>${drList(r.bull_case)}</div>
+      <div><span class="dos-lbl down">Bear case</span>${drList(r.bear_case)}</div>
+    </div>
+    <span class="lbl">Evidence</span>${drList(r.evidence)}
+    <div class="dr-crit"><span class="lbl">Self-critique</span>${drList(r.critique)}</div>
+    <span class="lbl">Thesis</span><p>${esc(r.thesis)}</p>
+    <span class="lbl">Breaks if</span><p>${esc(r.invalidation)}</p>
+    <p class="muted dr-foot">Saved to the brain's memory and audit trail · ${esc(r.ticker)}'s thesis updated · logged to the shadow track record. Execute manually if you act.</p>
+  </div>`);
+  $("#modalCard").classList.add("modal-wide");
+}
+window.showDeepReport = showDeepReport;
+
 function showAnalysisModal(ticker, t) {
   const meta = t.cached
     ? `Cached research${t.refreshed_at ? ` · ${new Date(t.refreshed_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
@@ -665,9 +854,12 @@ function showAnalysisModal(ticker, t) {
     <div class="fb">
       <button class="yes" onclick="fb('${ticker}',true)">Good idea</button>
       <button class="no" onclick="fb('${ticker}',false)">Pass</button>
-      <button class="ghost" onclick="deepAnalyze('${ticker}', this)">Deep refresh</button>
     </div>
-    <p class="muted" style="margin-top:10px;font-size:12px">${esc(meta)}. Execute manually if you act on it.</p></div>`);
+    <div class="row" style="margin-top:10px;gap:10px">
+      <button class="ghost" onclick="deepAnalyze('${ticker}', this)">Re-run analyst</button>
+      <button class="primary" onclick="deepResearch('${ticker}')">Deep research →</button>
+    </div>
+    <p class="muted" style="margin-top:10px;font-size:12px">${esc(meta)}. Deep research runs a fuller, self-critiqued dive and updates the thesis. Execute manually if you act.</p></div>`);
 }
 function ticketHTML(t) {
   return `<div class="head"><span class="tkr">${t.ticker}</span><span class="pill ${t.action}">${esc(t.decision_label || t.action)}</span></div>
@@ -695,19 +887,61 @@ $("#runDiscover").onclick = async (e) => {
   busy(e.target, false);
 };
 
-// ---------- shadow ----------
+// ---------- shadow (the scorecard) ----------
+const CONV_LABEL = { high: "High · 7–10", medium: "Medium · 4–6", low: "Low · 1–3" };
+const titleCase = (s) => (s || "—").replace(/\b\w/g, (c) => c.toUpperCase());
+
+// One row of a summary cut (calibration / by-engine): count, win, return, alpha.
+function scCut(label, r) {
+  const alpha = r.benchmarked
+    ? `<span class="${cls(r.avg_alpha_pct)}">${pct(r.avg_alpha_pct)}</span>`
+    : '<span class="muted">—</span>';
+  return `<tr><td>${label}</td><td>${r.count}</td>
+    <td class="${cls(r.win_rate - 50)}">${r.win_rate}%</td>
+    <td class="${cls(r.avg_return_pct)}">${pct(r.avg_return_pct)}</td>
+    <td>${alpha}</td></tr>`;
+}
+
 async function loadScore() {
-  const s = await api("scoreboard");
-  $("#scoreStats").innerHTML = s.count ? `
-    <div><label>Logged</label><strong>${s.count}</strong></div>
-    <div><label>Win rate</label><strong class="${cls(s.win_rate - 50)}">${s.win_rate}%</strong></div>
-    <div><label>Avg return</label><strong class="${cls(s.avg_return_pct)}">${pct(s.avg_return_pct)}</strong></div>
-    <div><label>Best / Worst</label><strong><span class="pos">${pct(s.best)}</span> / <span class="neg">${pct(s.worst)}</span></strong></div>`
-    : `<p class="muted">No recommendations logged yet. Analyze a stock or run discovery to start a track record.</p>`;
-  $("#scoreRows").innerHTML = (s.trades || []).map((t) => `
-    <tr><td>${(t.entry_at || "").slice(0, 10)}</td><td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}</td>
-    <td>${t.action}</td><td>${t.conviction}</td><td>$${t.entry_price.toFixed(2)}</td><td>$${t.last_price.toFixed(2)}</td>
-    <td class="${cls(t.return_pct)}">${pct(t.return_pct)}</td><td class="muted">${t.source}</td></tr>`).join("");
+  const c = await api("scorecard");
+  const h = c.headline || {};
+  const narrative = c.narrative || [];
+
+  if (!h.count) {
+    $("#scoreRead").innerHTML = `<p class="sc-empty">${esc(narrative[0]
+      || "No recommendations logged yet. Analyze a stock, run discovery, or let the assistant make a call to start a track record.")}</p>`;
+    $("#scoreCalib").innerHTML = $("#scoreSource").innerHTML = $("#scoreRows").innerHTML = "";
+    return;
+  }
+
+  const edge = h.benchmarked
+    ? `<div><label>Edge vs SPY</label><strong class="${cls(h.avg_alpha_pct)}">${pct(h.avg_alpha_pct)}</strong></div>`
+    : "";
+  const graded = `${h.count}<span class="sc-sub"> call${h.count === 1 ? "" : "s"}${h.benchmarked ? ` · ${h.benchmarked} vs SPY` : ""}</span>`;
+  $("#scoreRead").innerHTML = `
+    <div class="statline">
+      <div><label>Win rate</label><strong class="${cls(h.win_rate - 50)}">${h.win_rate}%</strong></div>
+      <div><label>Avg return</label><strong class="${cls(h.avg_return_pct)}">${pct(h.avg_return_pct)}</strong></div>
+      ${edge}
+      <div><label>Graded</label><strong>${graded}</strong></div>
+    </div>
+    <div class="sc-narrative">${narrative.map((n) => `<p>${esc(n)}</p>`).join("")}</div>`;
+
+  $("#scoreCalib").innerHTML = (c.calibration || []).filter((r) => r.count)
+    .map((r) => scCut(CONV_LABEL[r.key] || r.key, r)).join("");
+  $("#scoreSource").innerHTML = (c.by_source || [])
+    .map((r) => scCut(titleCase(r.key), r)).join("");
+
+  $("#scoreRows").innerHTML = (c.trades || []).map((t) => `
+    <tr><td>${(t.entry_at || "").slice(0, 10)}</td>
+    <td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}</td>
+    <td><span class="sc-call">${t.decision_label || t.action}</span></td>
+    <td>${t.conviction}</td>
+    <td>$${(t.entry_price || 0).toFixed(2)}</td>
+    <td>$${(t.last_price || 0).toFixed(2)}</td>
+    <td class="${cls(t.return_pct)}">${pct(t.return_pct)}</td>
+    <td>${t.benchmarked ? `<span class="${cls(t.alpha_pct)}">${pct(t.alpha_pct)}</span>` : '<span class="muted">—</span>'}</td>
+    <td class="muted">${t.source}</td></tr>`).join("");
 }
 $("#runScore").onclick = loadScore;
 
@@ -805,7 +1039,7 @@ $("#saveProfile").onclick = async (e) => {
 
 // ---------- modal ----------
 function showModal(h) { $("#modalCard").innerHTML = h; $("#modal").classList.remove("hidden"); }
-function closeModal() { $("#modal").classList.add("hidden"); }
+function closeModal() { $("#modal").classList.add("hidden"); $("#modalCard").classList.remove("modal-wide"); }
 window.closeModal = closeModal;
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 

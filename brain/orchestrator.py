@@ -14,8 +14,9 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, briefing, discovery, findings, memory, monitor
-from .models import Briefing, ChartPoint, DiscoveryResult, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
+from .engines import analyst, briefing, discovery, evaluation, findings, memory, missions, monitor
+from .engines import deep_research as _deep_research
+from .models import Briefing, ChartPoint, DiscoveryResult, Mission, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
 from .portfolio import clear_portfolio_cache, get_portfolio
 
 
@@ -167,6 +168,12 @@ def discover(flavor: str = "any", top_n: int = 5) -> DiscoveryResult:
     return discovery.discover(get_profile(), flavor=flavor, top_n=top_n, exclude=held)
 
 
+def deep_research(ticker: str) -> dict:
+    """Heavy, cited, self-critiqued deep dive on one ticker. Updates the stored
+    thesis, logs to the track record, and writes an audit trail to agent_runs."""
+    return _deep_research.run(ticker, get_profile())
+
+
 # Findings is an LLM pass, so it's cached and signature-gated: we only spend a
 # call when the holdings mix or the logged events actually changed (or the TTL
 # lapses). The background loop pre-warms it, so the feed is ready the instant the
@@ -230,6 +237,47 @@ def today_events(limit: int = 40, within_hours: float = 72.0) -> dict:
 # --- shadow mode ------------------------------------------------------------ #
 def scoreboard(refresh: bool = False) -> dict:
     return shadow.scoreboard(refresh=refresh)
+
+
+def scorecard(refresh: bool = False) -> dict:
+    """The evaluation layer: graded recommendations — calibration, attribution,
+    and benchmark-relative scoring. This is what proves whether the brain has edge."""
+    return evaluation.scorecard(refresh=refresh)
+
+
+def agent_runs(limit: int = 20, kind: str | None = None) -> list[dict]:
+    """The audit trail: recent agent loops with their tool traces. Reads the DB."""
+    return db_repo.recent_agent_runs(limit=limit, kind=kind)
+
+
+# --- strategy missions ------------------------------------------------------ #
+def list_missions(status: str | None = None) -> list[Mission]:
+    return db_repo.all_missions(status=status)
+
+
+def create_mission(title: str, mode: str = "any") -> Mission:
+    """Seed and classify a new standing theme tracker."""
+    return missions.create_mission(title, mode, get_profile())
+
+
+def run_mission(mission_id: str, force: bool = True) -> Mission | None:
+    m = db_repo.get_mission(mission_id)
+    if not m:
+        return None
+    return missions.run_mission(m, get_profile(), force=force)
+
+
+def set_mission_status(mission_id: str, status: str) -> Mission | None:
+    return db_repo.set_mission_status(mission_id, status)
+
+
+def delete_mission(mission_id: str) -> None:
+    db_repo.delete_mission(mission_id)
+
+
+def run_due_missions() -> list[dict]:
+    """Background entry point: re-run active missions whose cadence has lapsed."""
+    return missions.run_due_missions(get_profile())
 
 
 # --- agentic chat ----------------------------------------------------------- #

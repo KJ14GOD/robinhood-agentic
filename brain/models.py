@@ -288,24 +288,168 @@ class ResearchState(BaseModel):
 # Shadow mode
 # --------------------------------------------------------------------------- #
 class ShadowTrade(BaseModel):
-    """A logged paper trade. Every recommendation becomes one of these so we
-    can measure whether the brain is actually any good before risking money."""
+    """A logged paper trade. Every recommendation becomes one of these so we can
+    measure whether the brain is actually any good before risking money.
+
+    The record carries everything the evaluation layer needs to grade it later:
+    the decision label and conviction, the engine that produced it, the risk mode
+    and signals that justified it, and market/sector benchmark anchors captured at
+    entry so returns can be measured *relative* to what holding the index would
+    have done."""
     id: str
     ticker: str
     action: Action
+    decision_label: DecisionLabel = "WATCHLIST"
     conviction: int
     thesis: str
     entry_price: float
     entry_at: str = Field(default_factory=_now)
     source: str = "analyst"           # which engine produced it
+    risk_mode: str = ""               # the user's risk appetite at log time
+    flavor: str = ""                  # stable | moderate | volatile (discovery)
+    sector: str = ""
+    entry_signals: dict = Field(default_factory=dict)  # the signals snapshot that justified it
+    # benchmark anchors captured AT ENTRY (cannot be reconstructed later)
+    bench_symbol: str = "SPY"
+    bench_entry_price: float = 0.0
+    sector_etf: str = ""
+    sector_etf_entry_price: float = 0.0
     # outcome (filled in later by mark-to-market)
     last_price: float = 0.0
     last_at: str = ""
+    bench_last_price: float = 0.0
+    sector_etf_last_price: float = 0.0
     closed: bool = False
+    closed_at: str = ""
+    close_reason: str = ""
     user_executed: Optional[bool] = None   # did the user act on it?
 
-    def return_pct(self) -> float:
-        if self.entry_price <= 0:
+    def _sign(self) -> float:
+        # A sell/trim call is "right" when the name falls, so its return is the
+        # negative of the price change. Everything else is a long-style call.
+        return -1.0 if self.action in ("sell", "trim") else 1.0
+
+    @staticmethod
+    def _pct(entry: float, last: float) -> float:
+        if entry <= 0 or last <= 0:
             return 0.0
-        sign = -1.0 if self.action in ("sell", "trim") else 1.0
-        return sign * (self.last_price - self.entry_price) / self.entry_price * 100.0
+        return (last - entry) / entry * 100.0
+
+    def stock_change_pct(self) -> float:
+        """Raw, unsigned price change of the name since entry."""
+        return self._pct(self.entry_price, self.last_price)
+
+    def bench_change_pct(self) -> float:
+        return self._pct(self.bench_entry_price, self.bench_last_price)
+
+    def sector_change_pct(self) -> float:
+        return self._pct(self.sector_etf_entry_price, self.sector_etf_last_price)
+
+    def return_pct(self) -> float:
+        """Signed return of the recommendation in absolute terms."""
+        return self._sign() * self.stock_change_pct()
+
+    def alpha_pct(self) -> float:
+        """Signed excess return versus the market benchmark (SPY). This is the
+        number that says whether the call beat simply holding the index. Returns
+        0.0 when no anchor was captured (e.g. legacy trades) so un-gradeable
+        records don't pollute benchmark-relative stats."""
+        if self.bench_entry_price <= 0:
+            return 0.0
+        return self._sign() * (self.stock_change_pct() - self.bench_change_pct())
+
+    def has_benchmark(self) -> bool:
+        """Whether this trade carries a usable market anchor — the evaluation
+        layer uses this to compute alpha only over gradeable trades."""
+        return self.bench_entry_price > 0
+
+    def sector_alpha_pct(self) -> float:
+        """Signed excess return versus the stock's own sector ETF."""
+        if self.sector_etf_entry_price <= 0:
+            return 0.0
+        return self._sign() * (self.stock_change_pct() - self.sector_change_pct())
+
+
+# --------------------------------------------------------------------------- #
+# Strategy missions — standing theme trackers that work without being asked
+# --------------------------------------------------------------------------- #
+MissionLabel = Literal["BUY", "WATCH", "WAIT", "REJECT"]
+
+
+class MissionCandidate(BaseModel):
+    """One name a mission is tracking, with the brain's current verdict on it."""
+    ticker: str
+    label: MissionLabel = "WATCH"
+    conviction: int = Field(default=5, ge=1, le=10)
+    reason: str = ""
+    sector: str = ""
+    signals: dict = Field(default_factory=dict)  # snapshot behind the verdict
+    first_seen: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
+
+
+class Mission(BaseModel):
+    """A persistent research mission: 'track defense stocks', 'find stable AI
+    exposure'. The brain keeps the roster current and re-labels it on its own."""
+    id: str
+    title: str                                  # the user's instruction, verbatim
+    theme: str = ""                             # normalized short name of the theme
+    mode: Literal["stable", "balanced", "volatile", "any"] = "any"
+    status: Literal["active", "paused", "archived"] = "active"
+    candidates: list[MissionCandidate] = Field(default_factory=list)
+    created_at: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
+    last_run_at: str = ""
+    last_classified_at: str = ""
+    last_seeded_at: str = ""           # when the roster was last (re)screened for new names
+
+
+# --- LLM structured outputs for the mission engine --- #
+class MissionSeedItem(BaseModel):
+    ticker: str
+    why: str = Field(default="", description="One line on why it fits the theme.")
+
+
+class MissionSeed(BaseModel):
+    """The roster the brain proposes when a mission is created."""
+    theme: str = Field(description="A short, normalized name for the theme being tracked.")
+    candidates: list[MissionSeedItem] = Field(
+        description="Real, US-listed tickers that genuinely fit the theme (prefer the most on-theme names; 15 max).")
+
+
+class MissionClassification(BaseModel):
+    ticker: str
+    label: MissionLabel
+    conviction: int = Field(ge=1, le=10)
+    reason: str = Field(description="One grounded sentence citing the signal or fit.")
+
+
+class MissionRoster(BaseModel):
+    """The brain's per-candidate verdicts on a mission's roster."""
+    items: list[MissionClassification]
+
+
+# --------------------------------------------------------------------------- #
+# Deep research mode — the heavy, cited, self-critiqued analysis
+# --------------------------------------------------------------------------- #
+class DeepResearchDraft(BaseModel):
+    """The first pass: plan, both cases, evidence, and an initial call."""
+    plan: list[str] = Field(description="3-5 specific questions or angles this research sets out to answer.")
+    bull_case: list[str] = Field(description="The strongest grounded points FOR.")
+    bear_case: list[str] = Field(description="The strongest grounded points AGAINST.")
+    evidence: list[str] = Field(description="Specific facts actually cited from the signals/news/chart provided.")
+    thesis: str = Field(description="The core thesis in 2-4 sentences.")
+    catalyst: str = Field(description="What could make it move, and roughly when.")
+    risks: str = Field(description="What would break the thesis (its invalidation condition).")
+    action: Action
+    conviction: int = Field(ge=1, le=10)
+    suggested_size_pct: float = Field(default=0.0, description="Suggested position size as % of portfolio.")
+
+
+class DeepResearchCritique(BaseModel):
+    """The self-critique pass: argue against the draft, then settle the final call."""
+    critique: list[str] = Field(description="Honest self-criticism: the weakest links in the draft, what could be wrong, the steelman of the opposite call.")
+    holds_up: bool = Field(description="Does the draft's call still stand after this criticism?")
+    final_action: Action
+    final_conviction: int = Field(ge=1, le=10)
+    note: str = Field(description="One line on the final stance after self-criticism.")

@@ -91,6 +91,19 @@ class WatchTargetBody(BaseModel):
     target_entry: float = 0.0
 
 
+class MissionBody(BaseModel):
+    title: str
+    mode: str = "any"
+
+
+class MissionStatusBody(BaseModel):
+    status: str
+
+
+class DeepResearchBody(BaseModel):
+    ticker: str
+
+
 # ----- API ----- #
 def _state(pf=None):
     pf = pf or brain.portfolio()
@@ -177,6 +190,14 @@ def analyze(body: AnalyzeBody):
     return out
 
 
+@app.post("/api/deep_research")
+def deep_research(body: DeepResearchBody):
+    """Heavy, cited, self-critiqued deep dive on one ticker (two model calls)."""
+    if not body.ticker.strip():
+        return {"error": "Provide a ticker to research."}
+    return brain.deep_research(body.ticker)
+
+
 @app.post("/api/discover")
 def discover(body: DiscoverBody):
     return brain.discover(flavor=body.flavor, top_n=body.top_n).model_dump()
@@ -220,6 +241,49 @@ def scoreboard():
     return brain.scoreboard()
 
 
+@app.get("/api/scorecard")
+def scorecard():
+    """The evaluation layer: calibration, attribution, and benchmark-relative scoring."""
+    return brain.scorecard()
+
+
+@app.get("/api/agent_runs")
+def agent_runs(limit: int = Query(20, ge=1, le=100), kind: str | None = None):
+    """The audit trail of agentic loops (chat, deep research). Reads the DB."""
+    return {"runs": brain.agent_runs(limit=limit, kind=kind)}
+
+
+@app.get("/api/missions")
+def missions_list():
+    return {"missions": [m.model_dump() for m in brain.list_missions()]}
+
+
+@app.post("/api/missions")
+def mission_create(body: MissionBody):
+    """Seed a new standing theme tracker (LLM maps theme -> roster, then classifies)."""
+    if not body.title.strip():
+        return {"error": "A mission needs a theme, e.g. 'track defense stocks'."}
+    return brain.create_mission(body.title, body.mode).model_dump()
+
+
+@app.post("/api/missions/{mission_id}/run")
+def mission_run(mission_id: str):
+    m = brain.run_mission(mission_id, force=True)
+    return m.model_dump() if m else {"error": "Mission not found."}
+
+
+@app.post("/api/missions/{mission_id}/status")
+def mission_status(mission_id: str, body: MissionStatusBody):
+    m = brain.set_mission_status(mission_id, body.status)
+    return m.model_dump() if m else {"error": "Mission not found or bad status."}
+
+
+@app.delete("/api/missions/{mission_id}")
+def mission_delete(mission_id: str):
+    brain.delete_mission(mission_id)
+    return {"ok": True}
+
+
 @app.post("/api/feedback")
 def feedback(body: FeedbackBody):
     return brain.feedback(body.ticker, body.accepted).model_dump()
@@ -254,6 +318,12 @@ async def _refresh_loop() -> None:
             await asyncio.to_thread(brain.revisit_memory)
         except Exception as e:  # noqa: BLE001
             logger.warning("memory revisit failed: %s", e)
+        # Strategy missions: re-run any whose daily cadence lapsed. Gated per
+        # mission, so a calm set spends nothing; its own guard for the same reason.
+        try:
+            await asyncio.to_thread(brain.run_due_missions)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("mission run failed: %s", e)
         # Pre-warm the curated findings feed (over the freshly-logged events) so
         # it's ready the moment the user opens the tab. Cached + signature-gated,
         # so a calm book with no new events recomputes only when the TTL lapses.

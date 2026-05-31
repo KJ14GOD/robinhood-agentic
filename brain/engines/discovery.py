@@ -87,5 +87,8 @@ Return at most {top_n}."""
                 risks=f"Risk flavor: {idea.risk_flavor}.",
             ),
             source="discovery",
+            profile=profile,
+            flavor=idea.risk_flavor,
+            signals=enriched_map.get(idea.ticker),
         )
     return result
