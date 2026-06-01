@@ -15,9 +15,14 @@ from ..data.news import headlines_as_prompt
 from ..data.prices import clean_ticker, get_chart, get_signals
 from ..db import repository as db_repo
 from ..models import DeepResearchCritique, DeepResearchDraft, RiskProfile, TradeTicket, _now
+from . import researcher
 
 
-def _draft_prompt(ticker, profile, signals, news, chart_summary, prior) -> str:
+def _draft_prompt(ticker, profile, signals, news, chart_summary, prior, dossier) -> str:
+    research = (f"RESEARCH DOSSIER (an agentic investigation just run for you — live web + primary SEC "
+                f"filings, claims corroborated and confidence-tagged; it postdates your training data, so "
+                f"prefer it for anything recent and respect its confidence/disagreement flags):\n{dossier}"
+                if dossier else "RESEARCH DOSSIER: unavailable this run — rely on the signals and headlines below.")
     return f"""Run a deep, falsifiable research pass on {ticker} for this investor. Plan your
 inquiry, then build BOTH sides honestly before concluding.
 
@@ -25,6 +30,8 @@ INVESTOR PROFILE:
 {profile.describe()}
 
 {prior}
+
+{research}
 
 QUANTITATIVE SIGNALS (grounded — reason from these, cite them, do not invent numbers):
 {signals.as_prompt()}
@@ -85,7 +92,17 @@ def run(ticker: str, profile: RiskProfile) -> dict:
              f"PRIOR INVALIDATION: {prior_thesis.invalidation}"
              if prior_thesis else "No prior thesis on file — this is the first deep look.")
 
-    draft = llm.parse(_draft_prompt(ticker, profile, signals, news, chart_summary, prior),
+    # Run the agentic investigation first (plans, searches the live web, reads primary SEC filings,
+    # corroborates, tags confidence) and get back a cited dossier. This is the "gather" half of the
+    # two-step: it can't share a request with the structured draft below. Best-effort — a failure
+    # degrades the dive to signals + headlines rather than sinking it.
+    try:
+        research = researcher.investigate(ticker, profile, prior_thesis)
+    except Exception:  # noqa: BLE001
+        research = {"dossier": "", "trace": [], "tools_used": []}
+    dossier = research.get("dossier", "")
+
+    draft = llm.parse(_draft_prompt(ticker, profile, signals, news, chart_summary, prior, dossier),
                       DeepResearchDraft, max_tokens=3500)
     critique = llm.parse(_critique_prompt(ticker, draft), DeepResearchCritique, max_tokens=2000)
 
@@ -119,6 +136,8 @@ def run(ticker: str, profile: RiskProfile) -> dict:
         "invalidation": draft.risks,
         "changed": changed,
         "note": critique.note,
+        "dossier": dossier,
+        "research_trace": research.get("trace", []),
         "as_of": _now(),
     }
 
@@ -130,7 +149,8 @@ def run(ticker: str, profile: RiskProfile) -> dict:
             # Store the whole structured report so the UI can re-open the exact
             # card later from the audit trail (the readable text lives in answer).
             steps=[{"type": "report", "report": report}],
-            tools_used="get_stock_signals,get_stock_news,get_stock_chart",
+            tools_used=",".join(dict.fromkeys(
+                ["get_stock_signals", "get_stock_news", "get_stock_chart"] + research.get("tools_used", []))),
             model=llm.MODEL,
         )
     except Exception:  # noqa: BLE001

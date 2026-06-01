@@ -27,6 +27,10 @@ SCREEN_TTL_SECONDS = int(os.environ.get("SCREEN_TTL_SECONDS", "1800"))
 NEWS_TTL_SECONDS = int(os.environ.get("NEWS_TTL_SECONDS", "900"))
 AUTO_REFRESH_SECONDS = int(os.environ.get("AUTO_REFRESH_SECONDS", "120"))
 AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true", "yes", "on"}
+# Autonomous deep research: let the brain run unprompted deep dives on high-signal triggers
+# (a thesis breaking/under review, a mission name promoted to BUY) and drop the report into the
+# ping feed. Conservative + cooldowned in the engine; this is just the on/off switch.
+AUTO_DEEP_RESEARCH = os.environ.get("AUTO_DEEP_RESEARCH", "true").lower() in {"1", "true", "yes", "on"}
 MORNING_BRIEF_TIME = os.environ.get("MORNING_BRIEF_TIME", "06:30")
 EVENING_BRIEF_TIME = os.environ.get("EVENING_BRIEF_TIME", "16:30")
 

@@ -325,6 +325,13 @@ async def _refresh_loop() -> None:
             await asyncio.to_thread(brain.run_due_missions)
         except Exception as e:  # noqa: BLE001
             logger.warning("mission run failed: %s", e)
+        # Autonomous deep research: dive names that just hit a high-signal trigger (logged by the
+        # steps above this cycle) and drop the report into the ping feed. Heavily gated + cooldowned
+        # in the engine, so a calm book spends nothing; its own guard so a dive can't disturb the rest.
+        try:
+            await asyncio.to_thread(brain.run_autoresearch)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("autoresearch failed: %s", e)
         # Pre-warm the curated findings feed (over the freshly-logged events) so
         # it's ready the moment the user opens the tab. Cached + signature-gated,
         # so a calm book with no new events recomputes only when the TTL lapses.

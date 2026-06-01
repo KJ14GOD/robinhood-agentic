@@ -697,6 +697,7 @@ let ACT_EVENTS = [];
 
 function actKind(e) {
   return JUDGEMENT_TYPES.has(e.event_type) || e.source === "memory" || e.source === "analyze"
+    || e.source === "autoresearch"
     ? "judgement" : "signal";
 }
 function actTime(iso) {
@@ -858,6 +859,7 @@ function showDeepReport(r) {
       <div><span class="dos-lbl down">Bear case</span>${drList(r.bear_case)}</div>
     </div>
     <span class="lbl">Evidence</span>${drList(r.evidence)}
+    ${(r.dossier || r.web_brief) ? `<div class="dr-web"><span class="lbl">Research dossier</span><p>${esc(r.dossier || r.web_brief).replace(/\n/g, "<br>")}</p></div>` : ""}
     <div class="dr-crit"><span class="lbl">Self-critique</span>${drList(r.critique)}</div>
     ${r.thesis ? `<span class="lbl">Thesis</span><p>${esc(r.thesis)}</p>` : ""}
     ${r.invalidation ? `<span class="lbl">Breaks if</span><p>${esc(r.invalidation)}</p>` : ""}

@@ -96,3 +96,47 @@ def parse(user_prompt: str, schema: Type[T], max_tokens: int = 4000,
     if resp.parsed_output is None:
         raise RuntimeError(f"Model did not return valid {schema.__name__}")
     return resp.parsed_output
+
+
+# Server-side web search. The API runs the search and returns results inline; we never execute it.
+# Bounded by max_uses; a small blocklist kills the worst pump/SEO-farm noise without caging reach
+# (we steer toward trusted sources by prompt, not a hard allowlist). Shared by the chat agent and
+# the engine-side research helper below.
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20260209",
+    "name": "web_search",
+    "max_uses": 6,
+    "blocked_domains": ["zacks.com", "fool.com", "investorplace.com", "stocktwits.com"],
+}
+
+
+def web_research(task: str, max_searches: int = 5, max_tokens: int = 2500,
+                 max_steps: int = 6) -> str:
+    """Run a focused, web-search-enabled pass and return a synthesized, cited prose brief.
+
+    Server-side web search only (no client tools). This is the *gather* half of the two-step the
+    engines need: web search can't share a request with structured output (`messages.parse`), so an
+    engine calls this to get current, cited grounding, then feeds the brief into a normal parse call
+    to structure it. Handles the multi-request server loop (pause_turn) and the code-execution
+    container the search-result filtering runs in (container_id must be carried across requests)."""
+    cl = client()
+    tool = {**WEB_SEARCH_TOOL, "max_uses": max_searches}
+    messages: list[dict] = [{"role": "user", "content": f"{today_line()}\n\n{task}"}]
+    container_id: str | None = None
+    brief = ""
+    for _ in range(max_steps):
+        resp = cl.messages.create(
+            model=MODEL, max_tokens=max_tokens, system=_system_blocks(),
+            thinking={"type": "adaptive"}, output_config={"effort": EFFORT},
+            tools=[tool], messages=messages,
+            **({"container": container_id} if container_id else {}),
+        )
+        container_id = (getattr(resp, "container", None) and resp.container.id) or container_id
+        messages.append({"role": "assistant", "content": resp.content})
+        text = "".join(b.text for b in resp.content if b.type == "text")
+        if text:
+            brief = text  # the final (end_turn) response carries the full synthesis
+        if resp.stop_reason == "pause_turn":
+            continue  # server search loop hit its per-request cap — re-send to resume
+        break
+    return brief

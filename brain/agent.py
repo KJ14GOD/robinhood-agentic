@@ -56,16 +56,6 @@ USING WEB SEARCH:
 - Never treat a single headline or post as fact. Corroborate, and cite the source for any
   claim that moves your conclusion so it can be checked."""
 
-# Server-side web search. The API runs the search and returns results inline; we never execute
-# it. Bounded by max_uses; a small blocklist kills the worst pump/SEO-farm noise without caging
-# reach (we steer toward trusted sources by prompt, not a hard allowlist — see AGENT_SYSTEM).
-WEB_SEARCH_TOOL = {
-    "type": "web_search_20260209",
-    "name": "web_search",
-    "max_uses": 6,
-    "blocked_domains": ["zacks.com", "fool.com", "investorplace.com", "stocktwits.com"],
-}
-
 
 # --------------------------------------------------------------------------- #
 # Tools
@@ -185,7 +175,7 @@ TOOLS = [
             "required": ["ticker", "action", "conviction", "thesis"],
         },
     },
-    WEB_SEARCH_TOOL,
+    llm.WEB_SEARCH_TOOL,
 ]
 
 

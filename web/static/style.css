@@ -65,6 +65,10 @@ nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px
 .ping-more{padding:8px 15px;font-size:12px;color:var(--muted);cursor:pointer;border-top:1px solid var(--line2)}
 .ping-more:hover{color:var(--brain)}
 .sc-stamp{font-family:var(--mono);font-size:13px;color:var(--muted);font-weight:560}
+.dr-web{margin:6px 0 2px;padding:11px 13px;background:#faf9ff;border:1px solid var(--line);
+  border-left:3px solid var(--brain);border-radius:9px}
+.dr-web p{margin:5px 0 0;font-size:13px;line-height:1.55;color:var(--ink2);
+  max-height:220px;overflow-y:auto}
 
 .panel{display:none;animation:fade .22s ease}
 .panel.active{display:block}

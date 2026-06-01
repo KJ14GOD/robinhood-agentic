@@ -14,8 +14,9 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, briefing, discovery, evaluation, findings, memory, missions, monitor
+from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, memory, missions, monitor
 from .engines import deep_research as _deep_research
+from . import config
 from .models import Briefing, ChartPoint, DiscoveryResult, Mission, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
 from .portfolio import clear_portfolio_cache, get_portfolio
 
@@ -278,6 +279,15 @@ def delete_mission(mission_id: str) -> None:
 def run_due_missions() -> list[dict]:
     """Background entry point: re-run active missions whose cadence has lapsed."""
     return missions.run_due_missions(get_profile())
+
+
+def run_autoresearch() -> list[dict]:
+    """Background entry point: autonomously deep-dive names that just hit a high-signal trigger
+    (thesis broke/under review, mission name promoted to BUY) and drop the report into the ping
+    feed. Conservative + cooldowned in the engine; the whole thing is gated off by config."""
+    if not config.AUTO_DEEP_RESEARCH:
+        return []
+    return autoresearch.run_due_dives(get_profile())
 
 
 # --- agentic chat ----------------------------------------------------------- #

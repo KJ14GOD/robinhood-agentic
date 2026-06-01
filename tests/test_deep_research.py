@@ -64,6 +64,9 @@ def _fake_parse(prompt, schema, max_tokens=4000, **kw):
 class DeepResearchTests(unittest.TestCase):
     def setUp(self):
         dr.llm.parse = _fake_parse
+        dr.researcher.investigate = lambda *a, **k: {
+            "dossier": "Findings: AI demand stays strong (Reuters, 2026-05-30, high confidence).",
+            "trace": [], "tools_used": ["web_search", "get_company_financials"]}
         dr.get_signals = _fake_signals
         dr.headlines_as_prompt = _fake_news
         dr.get_chart = _fake_chart
@@ -80,6 +83,8 @@ class DeepResearchTests(unittest.TestCase):
         self.assertEqual(rep["conviction"], 6)
         self.assertEqual(rep["verdict"], "HOLD")
         self.assertTrue(rep["changed"])
+        # the agentic research dossier was gathered and carried into the report
+        self.assertIn("Reuters", rep["dossier"])
 
     def test_updates_thesis_logs_shadow_and_audits(self):
         dr.run("NVDA", self.profile)
@@ -96,7 +101,8 @@ class DeepResearchTests(unittest.TestCase):
         # audit trail persisted
         runs = repo.recent_agent_runs(limit=5, kind="deep_research")
         self.assertTrue(runs)
-        self.assertEqual(runs[0]["tools_used"], "get_stock_signals,get_stock_news,get_stock_chart")
+        self.assertEqual(runs[0]["tools_used"],
+                         "get_stock_signals,get_stock_news,get_stock_chart,web_search,get_company_financials")
         self.assertIn("DEEP RESEARCH", runs[0]["answer"])
 
 
