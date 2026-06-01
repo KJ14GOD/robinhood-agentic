@@ -331,6 +331,11 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
         except Exception:  # noqa: BLE001 — the audit trail must never break the answer
             pass
 
+    # web_search_20260209 filters results via a server-side code-execution container. When the
+    # search loop spans more than one request (pause_turn), the follow-up must reference that same
+    # container, or the API 400s with "container_id is required". Carry it across iterations.
+    container_id: str | None = None
+
     for _ in range(MAX_STEPS):
         resp = client.messages.create(
             model=llm.MODEL,
@@ -340,7 +345,9 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
             output_config={"effort": llm.EFFORT},
             tools=TOOLS,
             messages=messages,
+            **({"container": container_id} if container_id else {}),
         )
+        container_id = getattr(resp, "container", None) and resp.container.id or container_id
         messages.append({"role": "assistant", "content": resp.content})
 
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
