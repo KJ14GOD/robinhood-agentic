@@ -98,7 +98,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   $$(".tab").forEach((x) => x.classList.remove("active"));
   $$(".panel").forEach((x) => x.classList.remove("active"));
   t.classList.add("active"); $("#" + t.dataset.tab).classList.add("active");
-  if (t.dataset.tab === "portfolio" && STATE) loadPortfolioChart();
+  if (t.dataset.tab === "portfolio" && STATE) { loadPortfolioChart(); loadStructuralRisk(); }
   if (t.dataset.tab === "activity" && STATE) loadActivity();
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
   if (t.dataset.tab === "shadow" && STATE) loadScore(true);
@@ -968,6 +968,31 @@ async function loadScore(refresh = false) {
     <td class="muted">${t.source}</td></tr>`).join("");
 }
 $("#runScore").onclick = () => loadScore(true);
+
+// ---------- structural risk (portfolio tab) ----------
+async function loadStructuralRisk() {
+  const box = $("#riskBox");
+  if (!box) return;
+  let r;
+  try { r = await api("structural_risk"); } catch (e) { return; }
+  if (!r || !r.headline) { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  box.classList.toggle("hot", !!r.concentrated);
+  const rows = (r.clusters || []).map((c) => `
+    <div class="risk-row">
+      <span class="risk-w ${c.weight_pct >= 40 ? "hot" : ""}">${Math.round(c.weight_pct)}%</span>
+      <div class="risk-main">
+        <div class="risk-label">${esc(c.label)} <span class="risk-tks">${(c.tickers || []).map(esc).join(", ")}</span></div>
+        ${c.breaks_if ? `<div class="risk-breaks">breaks if: ${esc(c.breaks_if)}</div>` : ""}
+      </div>
+    </div>`).join("");
+  box.innerHTML = `
+    <div class="risk-head"><h3>Structural risk</h3>
+      <span class="risk-asof">${r.as_of ? new Date(r.as_of).toLocaleDateString() : ""}</span></div>
+    <p class="risk-headline ${r.concentrated ? "hot" : ""}">${esc(r.headline)}</p>
+    ${rows ? `<div class="risk-list">${rows}</div>` : ""}
+    ${r.note ? `<p class="risk-note">${esc(r.note)}</p>` : ""}`;
+}
 
 // ---------- agentic chat (streaming) ----------
 const CHAT_HISTORY = [];

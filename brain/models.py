@@ -211,6 +211,26 @@ class FindingsFeed(BaseModel):
     findings: list[Finding]
 
 
+class RiskCluster(BaseModel):
+    """A group of holdings that share one underlying driver — i.e. one bet made several times.
+    The clustering is the model's judgement; `weight_pct` is computed deterministically from the
+    portfolio's actual weights (never trusted to the model's arithmetic)."""
+    label: str
+    driver: str = ""
+    breaks_if: str = ""
+    tickers: list[str] = Field(default_factory=list)
+    weight_pct: float = 0.0
+
+
+class StructuralRisk(BaseModel):
+    """Portfolio-level structural read: correlated-bet clusters the per-ticker monitors can't see."""
+    headline: str = ""
+    concentrated: bool = False
+    clusters: list[RiskCluster] = Field(default_factory=list)
+    note: str = ""
+    as_of: str = ""
+
+
 class ChartPoint(BaseModel):
     at: str
     close: float

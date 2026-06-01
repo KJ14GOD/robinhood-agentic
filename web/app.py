@@ -248,6 +248,12 @@ def scorecard(refresh: bool = False):
     return brain.scorecard(refresh=refresh)
 
 
+@app.get("/api/structural_risk")
+def structural_risk():
+    """Portfolio-level structural read: correlated-bet clusters and the biggest hidden risk."""
+    return brain.structural_risk().model_dump()
+
+
 @app.get("/api/agent_runs")
 def agent_runs(limit: int = Query(20, ge=1, le=100), kind: str | None = None):
     """The audit trail of agentic loops (chat, deep research). Reads the DB."""
@@ -332,6 +338,12 @@ async def _refresh_loop() -> None:
             await asyncio.to_thread(brain.run_autoresearch)
         except Exception as e:  # noqa: BLE001
             logger.warning("autoresearch failed: %s", e)
+        # Structural (portfolio-level) risk read + autonomous concentration ping. Gated like the
+        # feed on the allocation signature, so a steady book spends nothing.
+        try:
+            await asyncio.to_thread(brain.run_structural_risk)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("structural risk failed: %s", e)
         # Pre-warm the curated findings feed (over the freshly-logged events) so
         # it's ready the moment the user opens the tab. Cached + signature-gated,
         # so a calm book with no new events recomputes only when the TTL lapses.

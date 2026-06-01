@@ -70,6 +70,24 @@ nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px
 .dr-web p{margin:5px 0 0;font-size:13px;line-height:1.55;color:var(--ink2);
   max-height:220px;overflow-y:auto}
 
+/* structural risk — portfolio tab */
+.risk-box{margin:18px 0 8px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;
+  background:var(--surface);box-shadow:var(--shadow)}
+.risk-box.hot{border-left:3px solid var(--amber);background:#fffdf8}
+.risk-head{display:flex;align-items:baseline;justify-content:space-between}
+.risk-head h3{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.risk-asof{font-size:11px;color:var(--faint);font-family:var(--mono)}
+.risk-headline{margin:8px 0 4px;font-size:15px;font-weight:600;color:var(--txt)}
+.risk-headline.hot{color:var(--amber)}
+.risk-list{margin-top:10px;display:flex;flex-direction:column;gap:9px}
+.risk-row{display:grid;grid-template-columns:46px minmax(0,1fr);align-items:baseline;gap:12px}
+.risk-w{font-family:var(--mono);font-size:15px;font-weight:680;color:var(--ink2);text-align:right}
+.risk-w.hot{color:var(--amber)}
+.risk-label{font-size:13.5px;color:var(--txt);font-weight:560}
+.risk-tks{font-family:var(--mono);font-size:11.5px;color:var(--muted);font-weight:400;margin-left:4px}
+.risk-breaks{font-size:12.5px;color:var(--muted);margin-top:2px}
+.risk-note{margin:10px 0 0;font-size:12.5px;color:var(--muted);font-style:italic}
+
 .panel{display:none;animation:fade .22s ease}
 .panel.active{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(3px)}}

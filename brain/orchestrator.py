@@ -16,6 +16,7 @@ from .data import robinhood_charts
 from .db import repository as db_repo
 from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, memory, missions, monitor
 from .engines import deep_research as _deep_research
+from .engines import structural_risk as _structural_risk
 from . import config
 from .models import Briefing, ChartPoint, DiscoveryResult, Mission, Portfolio, ResearchState, RiskProfile, StockChart, TradeTicket
 from .portfolio import clear_portfolio_cache, get_portfolio
@@ -210,6 +211,43 @@ def prewarm_feed() -> None:
     feed is already there when the user arrives. No-op cost when nothing changed."""
     if get_portfolio().holdings:
         feed()
+
+
+# Structural risk is an LLM clustering pass — gated like findings, but on a coarser signature
+# (the set of holdings + weights rounded to whole %), since cluster membership only shifts when
+# allocations actually change, not on every tick.
+_RISK_CACHE: dict = {"result": None, "at": 0.0, "sig": None}
+_RISK_TTL = 6 * 3600.0
+
+
+def _risk_signature(pf: Portfolio) -> tuple:
+    w = pf.weights()
+    return tuple(sorted((h.ticker, round(w.get(h.ticker, 0.0))) for h in pf.holdings))
+
+
+def structural_risk(force: bool = False):
+    """Portfolio-level correlated-bet read. Cached + signature-gated so it only re-clusters when
+    the allocation actually shifts (or the TTL lapses) — a calm book costs nothing."""
+    pf = get_portfolio()
+    sig = _risk_signature(pf)
+    now = time.time()
+    cached = _RISK_CACHE["result"]
+    if (not force and cached is not None and _RISK_CACHE["sig"] == sig
+            and now - _RISK_CACHE["at"] < _RISK_TTL):
+        return cached
+    result = _structural_risk.analyze(pf, get_profile(), research_state.load_state().theses)
+    _RISK_CACHE.update(result=result, at=now, sig=sig)
+    return result
+
+
+def run_structural_risk():
+    """Background entry: compute the structural read (cached) and drop a cooldowned ping if the
+    book is concentrated. No-op cost when allocation is unchanged."""
+    if not get_portfolio().holdings:
+        return None
+    result = structural_risk()
+    _structural_risk.maybe_alert(result)
+    return result
 
 
 def run_monitors() -> list[dict]:
