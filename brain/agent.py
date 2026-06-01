@@ -312,7 +312,9 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
     """
     client = llm.client()
     messages: list[dict] = list(history or [])
-    messages.append({"role": "user", "content": message})
+    # Anchor "now" so the model frames recency and web-search queries around today, not its
+    # training-era assumption of an earlier year. Goes in the message, not the cached system block.
+    messages.append({"role": "user", "content": f"{llm.today_line()}\n\n{message}"})
 
     # Accumulate a compact, faithful trace so the whole loop is persisted to
     # agent_runs as an audit trail (what the brain looked at, and why it answered).

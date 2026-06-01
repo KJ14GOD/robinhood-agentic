@@ -10,6 +10,7 @@ Design notes:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Type, TypeVar
 
 import anthropic
@@ -45,6 +46,17 @@ MODEL = config.BRAIN_MODEL
 EFFORT = config.BRAIN_EFFORT
 
 
+def today_line() -> str:
+    """A one-line 'today is X' anchor. The model's training cutoff is in the past, so without
+    this it assumes an earlier year — framing 'recent'/'this week' and any web search around the
+    wrong date. Injected into the *message* (never the cached system prompt) so prompt caching of
+    the frozen system block is preserved; it changes once a day at most."""
+    now = datetime.now(timezone.utc)
+    return (f"Today's date is {now:%A, %B %-d, %Y}. Treat this as the present: ground every "
+            "'recent', 'this week', 'latest', or 'now' judgement — and every web search query — "
+            "in this date. Do NOT assume an earlier year; your training data predates today.")
+
+
 def client() -> anthropic.Anthropic:
     global _client
     if _client is None:
@@ -64,7 +76,7 @@ def ask(user_prompt: str, max_tokens: int = 4000, effort: str | None = None) -> 
         system=_system_blocks(),
         thinking={"type": "adaptive"},
         output_config={"effort": effort or EFFORT},
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[{"role": "user", "content": f"{today_line()}\n\n{user_prompt}"}],
     )
     return "".join(b.text for b in resp.content if b.type == "text")
 
@@ -78,7 +90,7 @@ def parse(user_prompt: str, schema: Type[T], max_tokens: int = 4000,
         system=_system_blocks(),
         thinking={"type": "adaptive"},
         output_config={"effort": effort or EFFORT},
-        messages=[{"role": "user", "content": user_prompt}],
+        messages=[{"role": "user", "content": f"{today_line()}\n\n{user_prompt}"}],
         output_format=schema,
     )
     if resp.parsed_output is None:
