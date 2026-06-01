@@ -101,6 +101,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "portfolio" && STATE) loadPortfolioChart();
   if (t.dataset.tab === "activity" && STATE) loadActivity();
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
+  if (t.dataset.tab === "shadow" && STATE) loadScore(true);
 }));
 
 // ---------- state / header ----------
@@ -725,6 +726,7 @@ async function loadActivity() {
   try { r = await api("events?limit=120"); } catch (e) { return; }
   ACT_EVENTS = (r && r.events) || [];
   renderActivity();
+  markPingsRead(ACT_EVENTS);  // looking at the full log clears the "new" pings
 }
 function renderActivity() {
   const box = $("#actLog");
@@ -921,8 +923,8 @@ function scCut(label, r) {
     <td>${alpha}</td></tr>`;
 }
 
-async function loadScore() {
-  const c = await api("scorecard");
+async function loadScore(refresh = false) {
+  const c = await api("scorecard" + (refresh ? "?refresh=1" : ""));
   const h = c.headline || {};
   const narrative = c.narrative || [];
 
@@ -943,6 +945,7 @@ async function loadScore() {
       <div><label>Avg return</label><strong class="${cls(h.avg_return_pct)}">${pct(h.avg_return_pct)}</strong></div>
       ${edge}
       <div><label>Graded</label><strong>${graded}</strong></div>
+      <div><label>Updated</label><strong class="sc-stamp">${new Date().toLocaleTimeString()}</strong></div>
     </div>
     <div class="sc-narrative">${narrative.map((n) => `<p>${esc(n)}</p>`).join("")}</div>`;
 
@@ -962,7 +965,7 @@ async function loadScore() {
     <td>${t.benchmarked ? `<span class="${cls(t.alpha_pct)}">${pct(t.alpha_pct)}</span>` : '<span class="muted">—</span>'}</td>
     <td class="muted">${t.source}</td></tr>`).join("");
 }
-$("#runScore").onclick = loadScore;
+$("#runScore").onclick = () => loadScore(true);
 
 // ---------- agentic chat (streaming) ----------
 const CHAT_HISTORY = [];
@@ -1062,10 +1065,129 @@ function closeModal() { $("#modal").classList.add("hidden"); $("#modalCard").cla
 window.closeModal = closeModal;
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 
+// ---------- pings: the "new since you last looked" navigator strip ----------
+// Rides on the same event stream the brain already logs. Unread = events with an id newer than
+// the last one acknowledged (persisted in localStorage). Surfaces as a rail on the Brain tab +
+// a count badge on the Brain/Activity tabs, and optionally a browser notification.
+let PING_SEEN = +(localStorage.getItem("pingSeenId") || 0);
+let PING_EVENTS = [];
+
+function pingUnread() { return PING_EVENTS.filter((e) => (e.id || 0) > PING_SEEN); }
+
+async function loadPings() {
+  let r;
+  try { r = await api("events?limit=40"); } catch (e) { return; }
+  const prev = PING_EVENTS;
+  PING_EVENTS = (r && r.events) || [];
+  if (localStorage.getItem("pingSeenId") === null && PING_EVENTS.length) {
+    // First ever load: start "caught up" on the existing backlog so it doesn't all show as new.
+    // Only events logged from here on will register as pings.
+    PING_SEEN = PING_EVENTS.reduce((m, e) => Math.max(m, e.id || 0), 0);
+    localStorage.setItem("pingSeenId", String(PING_SEEN));
+  }
+  renderPings();
+  maybeNotify(prev);
+}
+
+function setBadge(id, n) {
+  const el = $("#" + id);
+  if (!el) return;
+  if (n > 0) { el.textContent = n > 99 ? "99+" : n; el.classList.remove("hidden"); }
+  else el.classList.add("hidden");
+}
+
+function renderPings() {
+  const unread = pingUnread();
+  setBadge("badgeBrain", unread.length);
+  setBadge("badgeActivity", unread.length);
+  const rail = $("#pingRail");
+  if (!rail) return;
+  rail.classList.remove("hidden");
+  if (!unread.length) {
+    // Quiet "present but nothing new" state — the navigator should still feel alive when calm.
+    rail.classList.add("calm");
+    rail.innerHTML = `
+      <div class="ping-head">
+        <span class="ping-live calm">All caught up — the brain is watching</span>
+        <div class="ping-actions">
+          <button class="linklike" id="pingBell">${notifyOn() ? "notifications on" : "turn on notifications"}</button>
+          <button class="linklike" onclick="document.querySelector('.tab[data-tab=activity]').click()">open Activity</button>
+        </div>
+      </div>`;
+    $("#pingBell").onclick = toggleNotify;
+    return;
+  }
+  rail.classList.remove("calm");
+  const top = unread.slice(0, 6);
+  rail.innerHTML = `
+    <div class="ping-head">
+      <span class="ping-live">${unread.length} new since you last looked</span>
+      <div class="ping-actions">
+        <button class="linklike" id="pingBell">${notifyOn() ? "notifications on" : "turn on notifications"}</button>
+        <button class="linklike" id="pingClear">mark all read</button>
+      </div>
+    </div>
+    <div class="ping-list">
+      ${top.map((e) => `
+        <div class="ping-item ${esc(e.severity || "info")}"${e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : ""}>
+          <span class="ping-dot"></span>
+          <span class="ping-tk">${esc(e.ticker || "")}</span>
+          <span class="ping-what">${esc(e.title || "")}</span>
+          <span class="ping-time">${esc(actTime(e.created_at))}</span>
+        </div>`).join("")}
+      ${unread.length > top.length
+        ? `<div class="ping-more" onclick="document.querySelector('.tab[data-tab=activity]').click()">+${unread.length - top.length} more — open Activity →</div>`
+        : ""}
+    </div>`;
+  $("#pingClear").onclick = () => markPingsRead();
+  $("#pingBell").onclick = toggleNotify;
+}
+
+function markPingsRead(events) {
+  const list = (events && events.length) ? events : PING_EVENTS;
+  PING_SEEN = list.reduce((m, e) => Math.max(m, e.id || 0), PING_SEEN);
+  localStorage.setItem("pingSeenId", String(PING_SEEN));
+  renderPings();
+}
+
+// Browser notifications — opt-in, fires only for genuinely new warn/alert events (the ones worth
+// interrupting you for), and never on first load.
+function notifyOn() {
+  return localStorage.getItem("pingNotify") === "1" && "Notification" in window && Notification.permission === "granted";
+}
+function toggleNotify() {
+  if (!("Notification" in window)) { toast("This browser can't show notifications"); return; }
+  if (notifyOn()) { localStorage.setItem("pingNotify", "0"); renderPings(); toast("Notifications off"); return; }
+  Notification.requestPermission().then((p) => {
+    localStorage.setItem("pingNotify", p === "granted" ? "1" : "0");
+    toast(p === "granted" ? "Notifications on" : "Notifications blocked in browser settings");
+    renderPings();
+  });
+}
+function maybeNotify(prevEvents) {
+  if (!notifyOn()) return;
+  const prevMax = prevEvents.reduce((m, e) => Math.max(m, e.id || 0), 0);
+  if (!prevMax) return;  // skip the first load — don't dump a notification on open
+  const fresh = PING_EVENTS.filter((e) => (e.id || 0) > prevMax && (e.severity === "alert" || e.severity === "warn"));
+  for (const e of fresh.slice(0, 3)) {
+    try {
+      const n = new Notification(`${e.ticker ? e.ticker + " · " : ""}${e.title || "Brain update"}`,
+        { body: e.summary || "", tag: "brain-" + e.id });
+      n.onclick = () => { window.focus(); if (e.ticker) analyze(e.ticker); };
+    } catch (_) { /* notification API can throw on some platforms — never let it break the loop */ }
+  }
+}
+
 // ---------- boot ----------
 loadState().then(() => {
   loadScore();
+  loadPings();
   setTimeout(() => refreshLive({ quiet: true }), 250);
   setTimeout(loadFeed, 800);
 });
-setInterval(loadState, 60000);
+setInterval(() => {
+  loadState();
+  loadPings();
+  // Keep the Shadow scorecard live while you're watching it (marks open trades to fresh quotes).
+  if ($("#shadow").classList.contains("active")) loadScore(true);
+}, 60000);

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Brain · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=15" />
+<link rel="stylesheet" href="/static/style.css?v=18" />
 </head>
 <body>
 <div id="app">
@@ -20,8 +20,8 @@
   <div id="staleBanner" class="stale-banner hidden"></div>
 
   <nav>
-    <button class="tab active" data-tab="brain">Brain</button>
-    <button class="tab" data-tab="activity">Activity</button>
+    <button class="tab active" data-tab="brain">Brain<span class="tab-badge hidden" id="badgeBrain"></span></button>
+    <button class="tab" data-tab="activity">Activity<span class="tab-badge hidden" id="badgeActivity"></span></button>
     <button class="tab" data-tab="portfolio">Portfolio</button>
     <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="shadow">Shadow</button>
@@ -33,6 +33,7 @@
     <section id="brain" class="panel active">
       <div class="brain-shell">
         <div class="workspace">
+          <div id="pingRail" class="ping-rail hidden"></div>
           <div class="today-head">
             <div>
               <h2>Today</h2>
@@ -210,6 +211,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=15"></script>
+<script src="/static/app.js?v=18"></script>
 </body>
 </html>

@@ -242,9 +242,10 @@ def scoreboard():
 
 
 @app.get("/api/scorecard")
-def scorecard():
-    """The evaluation layer: calibration, attribution, and benchmark-relative scoring."""
-    return brain.scorecard()
+def scorecard(refresh: bool = False):
+    """The evaluation layer: calibration, attribution, and benchmark-relative scoring.
+    `refresh` re-marks open trades against fresh quotes (used by the live auto-refresh)."""
+    return brain.scorecard(refresh=refresh)
 
 
 @app.get("/api/agent_runs")
