@@ -12,8 +12,10 @@ signals the monitor already cached this cycle, so it adds no extra data load.
 """
 from __future__ import annotations
 
-from ..data.news import headlines_as_prompt
-from ..data.prices import TrendSignals, get_signals_many
+import re
+
+from ..data.news import get_news, headlines_as_prompt
+from ..data.prices import TrendSignals, get_earnings_date, get_signals_many
 from ..models import Holding, Portfolio, RiskProfile, ThesisVerdict, _now
 from .. import llm, research_state
 from ..db import repository as db_repo
@@ -42,6 +44,66 @@ def trigger_reason(holding: Holding, sig: TrendSignals | None) -> str | None:
     if sig and 0 < sig.rsi_14 <= monitor.RSI_OVERSOLD:
         reasons.append(f"oversold (RSI {sig.rsi_14:.0f})")
     return "; ".join(reasons) or None
+
+
+# Common words to ignore when matching a thesis's drivers against headlines.
+_STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "into", "will", "its",
+    "are", "has", "have", "but", "not", "you", "your", "their", "would", "could",
+    "than", "then", "over", "under", "above", "below", "more", "less", "been",
+    "they", "them", "was", "were", "which", "what", "when", "while", "about",
+}
+
+
+def _thesis_terms(thesis) -> set[str]:
+    """The thesis's named drivers as lowercase keywords — drawn from its
+    invalidation condition and accumulated strengthens/weakens (not the prose),
+    so a news match is about a *specific* driver, not any generic word."""
+    text = " ".join([thesis.invalidation or ""] + list(thesis.strengthens) + list(thesis.weakens))
+    words = re.findall(r"[a-z][a-z0-9\-]{3,}", text.lower())
+    return {w for w in words if w not in _STOPWORDS}
+
+
+def _news_trigger(thesis) -> str | None:
+    """Fires when a recent headline mentions one of the thesis's named drivers."""
+    terms = _thesis_terms(thesis)
+    if not terms:
+        return None
+    try:
+        for h in get_news(thesis.ticker, limit=6):
+            title = (h.title or "").lower()
+            if any(term in title for term in terms):
+                return f'recent news may bear on the thesis: "{h.title.strip()}"'[:180]
+    except Exception:  # noqa: BLE001 — news is best-effort; never block a revisit
+        return None
+    return None
+
+
+def _earnings_trigger(ticker: str) -> str | None:
+    """Fires when earnings are within the soon-window or just passed."""
+    from datetime import date
+
+    ed = get_earnings_date(ticker)
+    if ed is None:
+        return None
+    delta = (ed - date.today()).days
+    if delta == 0:
+        return "reports earnings today"
+    if 0 < delta <= monitor.EARNINGS_SOON_DAYS:
+        return f"reports earnings in {delta} day{'s' if delta != 1 else ''}"
+    if -3 <= delta < 0:
+        return "just reported earnings"
+    return None
+
+
+def _stale_trigger(thesis) -> str | None:
+    """Fires when a thesis has aged out with no recent look — a scheduled re-check
+    even on a calm book, so stored views don't silently rot. Self-resetting: a
+    re-judgement stamps updated_at, so it won't fire again for another window."""
+    age = monitor.days_old(thesis.updated_at)
+    if age is not None and age >= monitor.STALE_AFTER_DAYS:
+        return f"research is {int(age)} days old (scheduled re-check)"
+    return None
 
 
 def _judge(thesis, holding: Holding, sig: TrendSignals | None, trigger: str) -> ThesisVerdict | None:
@@ -92,13 +154,21 @@ def revisit_theses(pf: Portfolio, profile: RiskProfile) -> list[dict]:
 
     for thesis in candidates:
         holding = held[thesis.ticker]
-        trigger = trigger_reason(holding, signals.get(thesis.ticker))
-        if not trigger:
+        sig = signals.get(thesis.ticker)
+        # Re-examine on price/trend OR an earnings window OR news that hits a
+        # named driver — fundamentals now trigger a revisit, not just price.
+        reasons = [r for r in (
+            trigger_reason(holding, sig),
+            _earnings_trigger(thesis.ticker),
+            _news_trigger(thesis),
+            _stale_trigger(thesis),
+        ) if r]
+        if not reasons:
             continue
         if db_repo.event_exists_recent(_COOLDOWN_TYPES, thesis.ticker, TRIGGER_COOLDOWN_HOURS):
             continue  # already re-judged this name within the cooldown — don't burn a call
 
-        verdict = _judge(thesis, holding, signals.get(thesis.ticker), trigger)
+        verdict = _judge(thesis, holding, sig, "; ".join(reasons))
         if verdict is None:
             continue
 

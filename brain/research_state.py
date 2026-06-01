@@ -71,6 +71,7 @@ def update_from_ticket(ticket: TradeTicket) -> ResearchState:
         action_label=ticket.decision_label,
         thesis=ticket.thesis,
         confidence=float(ticket.conviction),
+        bull_case=ticket.catalyst,
         risks=ticket.risks,
         source="analyze",
     )

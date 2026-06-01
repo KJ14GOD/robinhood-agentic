@@ -105,10 +105,47 @@ _QUOTE_CACHE: dict[str, tuple[float, Quote]] = {}
 _SIGNAL_CACHE: dict[str, tuple[float, TrendSignals]] = {}
 _SCREEN_CACHE: dict[str, tuple[float, list]] = {}
 _CHART_CACHE: dict[str, tuple[float, StockChart]] = {}
+_EARNINGS_CACHE: dict[str, tuple[float, object]] = {}
 
 
 def _fresh(hit: tuple[float, object] | None, ttl: int) -> bool:
     return bool(hit and _time.time() - hit[0] < ttl)
+
+
+def get_earnings_date(ticker: str, refresh: bool = False):
+    """Best-effort nearest earnings date for a ticker (a `date`, or None).
+
+    Cached for a day — earnings dates barely move and the yfinance lookup is
+    flaky, so we cache negatives too rather than re-hammer it. Used by the
+    monitor ('earnings soon' events) and living memory (earnings-driven thesis
+    revisits)."""
+    from datetime import date as _date, datetime as _datetime
+
+    ticker = clean_ticker(ticker)
+    if not ticker:
+        return None
+    hit = _EARNINGS_CACHE.get(ticker)
+    if not refresh and _fresh(hit, 86400):
+        return hit[1]
+
+    result = None
+    try:
+        cal = yf.Ticker(ticker).calendar
+        raw = cal.get("Earnings Date") if isinstance(cal, dict) else None
+        dates: list = []
+        for d in (raw or []):
+            if isinstance(d, _datetime):
+                d = d.date()
+            if isinstance(d, _date):
+                dates.append(d)
+        if dates:
+            today = _date.today()
+            upcoming = sorted(d for d in dates if d >= today)
+            result = upcoming[0] if upcoming else sorted(dates)[-1]
+    except Exception:  # noqa: BLE001 — flaky source; treat as unknown
+        result = None
+    _EARNINGS_CACHE[ticker] = (_time.time(), result)
+    return result
 
 
 def clear_caches(tickers: list[str] | None = None, include_signals: bool = True) -> None:

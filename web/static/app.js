@@ -619,14 +619,33 @@ let DEEP_REPORTS = [];
 function openDeepLog(i) { const rp = DEEP_REPORTS[i]; if (rp) showDeepReport(rp); }
 window.openDeepLog = openDeepLog;
 
+// Rebuild a report card from a stored run — handles both the current format (a
+// single "report" step) and older runs that stored granular plan/bull/bear steps.
+function reportFromRun(run) {
+  const steps = run.steps || [];
+  const packed = steps.find((s) => s.type === "report");
+  if (packed && packed.report) return packed.report;
+  if (!steps.length) return null;
+  const find = (t) => steps.find((s) => s.type === t) || {};
+  const items = (t) => find(t).items || [];
+  const verdict = find("verdict");
+  return {
+    ticker: (run.query || "").replace(/^deep research:\s*/i, "").trim().toUpperCase(),
+    plan: items("plan"), bull_case: items("bull"), bear_case: items("bear"),
+    evidence: items("evidence"), critique: items("critique"),
+    verdict: verdict.label || verdict.action || "", action: verdict.action || "",
+    conviction: verdict.conviction || 0, thesis: "", invalidation: "", changed: false, note: "",
+  };
+}
+
 async function loadDeepLog() {
   const box = $("#deepLog");
   if (!box) return;
   let runs = [];
   try { const r = await api("agent_runs?kind=deep_research&limit=15"); runs = r.runs || []; } catch (e) {}
   const rows = runs.map((run) => {
-    const step = (run.steps || []).find((s) => s.type === "report");
-    return step && step.report ? { report: step.report, at: run.created_at } : null;
+    const report = reportFromRun(run);
+    return report ? { report, at: run.created_at } : null;
   }).filter(Boolean);
   DEEP_REPORTS = rows.map((r) => r.report);
   if (!rows.length) {
@@ -838,8 +857,8 @@ function showDeepReport(r) {
     </div>
     <span class="lbl">Evidence</span>${drList(r.evidence)}
     <div class="dr-crit"><span class="lbl">Self-critique</span>${drList(r.critique)}</div>
-    <span class="lbl">Thesis</span><p>${esc(r.thesis)}</p>
-    <span class="lbl">Breaks if</span><p>${esc(r.invalidation)}</p>
+    ${r.thesis ? `<span class="lbl">Thesis</span><p>${esc(r.thesis)}</p>` : ""}
+    ${r.invalidation ? `<span class="lbl">Breaks if</span><p>${esc(r.invalidation)}</p>` : ""}
     <p class="muted dr-foot">Saved to the brain's memory and audit trail · ${esc(r.ticker)}'s thesis updated · logged to the shadow track record. Execute manually if you act.</p>
   </div>`);
   $("#modalCard").classList.add("modal-wide");

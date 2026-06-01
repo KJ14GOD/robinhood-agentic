@@ -152,7 +152,7 @@ def cached_analysis(ticker: str) -> dict | None:
         "decision_label": label,
         "conviction": max(1, min(10, int(round(row["confidence"] or 1)))),
         "thesis": row["thesis"],
-        "catalyst": row["bull_case"] or "Cached research. Run Deep refresh for a fresh catalyst check.",
+        "catalyst": row["bull_case"] or "Cached research — hit Re-run analyst or Deep research for a fresh catalyst.",
         "risks": row["risks"] or row["bear_case"],
         "suggested_size_pct": 0.0,
         "fits_profile_because": "",

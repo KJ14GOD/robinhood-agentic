@@ -118,6 +118,45 @@ class DetectTests(unittest.TestCase):
             self.assertEqual(set(e), {"event_type", "ticker", "severity", "title", "summary", "source"})
             self.assertIn(e["severity"], {"info", "warn", "alert"})
 
+    def test_earnings_soon_fires_in_window(self):
+        from datetime import date, timedelta
+        pf = Portfolio(holdings=[Holding(ticker="NVDA", quantity=1, avg_cost=100, current_price=100)], cash=0)
+        sig = {"NVDA": _sig("NVDA", price=100, above_200d=True, rsi_14=55)}
+        ev = monitor.detect(pf, self.profile, ResearchState(), sig,
+                            {"NVDA": date.today() + timedelta(days=3)})
+        es = [e for e in ev if e["event_type"] == "earnings_soon"]
+        self.assertEqual(len(es), 1)
+        self.assertIn("3 days", es[0]["title"])
+
+    def test_earnings_far_off_is_silent(self):
+        from datetime import date, timedelta
+        pf = Portfolio(holdings=[Holding(ticker="NVDA", quantity=1, avg_cost=100, current_price=100)], cash=0)
+        sig = {"NVDA": _sig("NVDA", price=100, above_200d=True, rsi_14=55)}
+        ev = monitor.detect(pf, self.profile, ResearchState(), sig,
+                            {"NVDA": date.today() + timedelta(days=30)})
+        self.assertEqual([e for e in ev if e["event_type"] == "earnings_soon"], [])
+
+    def test_research_stale_fires_for_unheld_aged_thesis(self):
+        from datetime import datetime, timezone, timedelta
+        old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+        mem = ResearchState(theses={"OLD": Thesis(ticker="OLD", status="active", updated_at=old)})
+        pf = Portfolio(holdings=[Holding(ticker="HELD", quantity=1, avg_cost=10, current_price=10)], cash=0)
+        ev = monitor.detect(pf, self.profile, mem, {"HELD": _sig("HELD")})
+        self.assertIn("research_stale", _types(ev, "OLD"))
+
+    def test_research_stale_skips_held_and_fresh(self):
+        from datetime import datetime, timezone, timedelta
+        old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+        fresh = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        mem = ResearchState(theses={
+            "HELDOLD": Thesis(ticker="HELDOLD", status="active", updated_at=old),
+            "UNHELDNEW": Thesis(ticker="UNHELDNEW", status="active", updated_at=fresh),
+        })
+        pf = Portfolio(holdings=[Holding(ticker="HELDOLD", quantity=1, avg_cost=10, current_price=10)], cash=0)
+        ev = monitor.detect(pf, RiskProfile(max_single_position_pct=80.0), mem, {"HELDOLD": _sig("HELDOLD")})
+        self.assertNotIn("research_stale", _types(ev, "HELDOLD"))    # held -> the scheduled revisit handles it
+        self.assertNotIn("research_stale", _types(ev, "UNHELDNEW"))  # fresh -> not stale
+
 
 if __name__ == "__main__":
     unittest.main()
