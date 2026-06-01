@@ -41,7 +41,30 @@ You are operating in AGENT MODE with tools. Work like a real analyst:
   **Action:** 1-4 concrete actions or non-actions.
   **Watch:** optional, only if there is a specific trigger/level/event.
 - You proactively surface findings the user didn't explicitly ask for but should know
-  (a concentration risk, a holding breaking down, a standout opportunity)."""
+  (a concentration risk, a holding breaking down, a standout opportunity).
+
+USING WEB SEARCH:
+- The quantitative tools (signals, screen, chart) give you numbers; web_search gives you the
+  live story. Use web_search whenever the answer depends on what's happening *now* — recent
+  news, an earnings reaction, a policy/Fed/Trump comment, an IPO and its ripple to related
+  names, a sector catalyst, or anything time-sensitive. Don't answer from memory when current
+  information would change the call; search first.
+- Weight sources by trust, and say which tier a claim rests on:
+  TIER 1 (treat as ground truth): SEC filings / company IR / official releases.
+  TIER 2 (reputable reporting): Reuters, Bloomberg, WSJ, FT, CNBC, Barron's, AP.
+  TIER 3 (sentiment/color only, never a standalone fact): blogs, forums, Seeking Alpha, smaller outlets.
+- Never treat a single headline or post as fact. Corroborate, and cite the source for any
+  claim that moves your conclusion so it can be checked."""
+
+# Server-side web search. The API runs the search and returns results inline; we never execute
+# it. Bounded by max_uses; a small blocklist kills the worst pump/SEO-farm noise without caging
+# reach (we steer toward trusted sources by prompt, not a hard allowlist — see AGENT_SYSTEM).
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20260209",
+    "name": "web_search",
+    "max_uses": 6,
+    "blocked_domains": ["zacks.com", "fool.com", "investorplace.com", "stocktwits.com"],
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -162,6 +185,7 @@ TOOLS = [
             "required": ["ticker", "action", "conviction", "thesis"],
         },
     },
+    WEB_SEARCH_TOOL,
 ]
 
 
@@ -318,11 +342,28 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
         messages.append({"role": "assistant", "content": resp.content})
 
         tool_uses = [b for b in resp.content if b.type == "tool_use"]
-        # surface any interim text the model wrote alongside its tool calls
+        # surface interim text + server-side web searches (the search runs on the API and its
+        # results are already inline in this same response — we only narrate it to the UI).
         for b in resp.content:
             if b.type == "text" and b.text.strip():
                 trace.append({"type": "note", "text": b.text.strip()})
                 yield {"type": "note", "text": b.text.strip()}
+            elif b.type == "server_tool_use" and b.name == "web_search":
+                query = (b.input or {}).get("query", "")
+                tools_used.append("web_search")
+                trace.append({"type": "tool", "name": "web_search", "input": {"query": query}})
+                yield {"type": "tool", "name": "web_search", "input": {"query": query}}
+            elif b.type == "web_search_tool_result":
+                hits = b.content if isinstance(b.content, list) else []
+                summary = f"{len(hits)} result{'s' if len(hits) != 1 else ''}" + (
+                    f": {hits[0].title}" if hits and getattr(hits[0], "title", None) else "")
+                trace.append({"type": "tool_result", "name": "web_search", "summary": summary})
+                yield {"type": "tool_result", "name": "web_search", "summary": summary}
+
+        # The server-side search loop paused at its iteration cap — re-send to let it resume
+        # (the trailing server_tool_use block in the appended assistant content signals resume).
+        if resp.stop_reason == "pause_turn":
+            continue
 
         if resp.stop_reason != "tool_use" or not tool_uses:
             final = "".join(b.text for b in resp.content if b.type == "text")
