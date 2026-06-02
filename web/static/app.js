@@ -1078,7 +1078,7 @@ async function loadStructuralRisk() {
   const box = $("#riskBox");
   if (!box) return;
   box.classList.remove("hidden", "hot");
-  box.innerHTML = `<div class="risk-head"><h3>Structural risk</h3></div>
+  box.innerHTML = `<div class="risk-head"><div><h3>Structural risk</h3><p class="risk-sub">Shared drivers across your holdings</p></div></div>
     <p class="risk-loading"><span class="spin"></span> Analyzing portfolio structure…</p>`;
   let r;
   try { r = await api("structural_risk"); } catch (e) { box.classList.add("hidden"); return; }
@@ -1111,10 +1111,14 @@ function renderStructuralRisk(r) {
 
   box.classList.remove("hidden");
   box.classList.toggle("hot", !!r.concentrated);
+  const status = r.concentrated ? "Concentrated" : "Balanced";
   box.innerHTML = `
-    <div class="risk-head"><h3>Structural risk</h3>
+    <div class="risk-head"><div><h3>Structural risk</h3><p class="risk-sub">Shared drivers across your holdings</p></div>
       <span class="risk-asof">${r.as_of ? new Date(r.as_of).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span></div>
-    <p class="risk-headline ${r.concentrated ? "hot" : ""}">${esc(r.headline)}</p>
+    <div class="risk-main ${r.concentrated ? "hot" : ""}">
+      <span class="risk-badge">${status}</span>
+      <p class="risk-headline ${r.concentrated ? "hot" : ""}">${esc(r.headline)}</p>
+    </div>
     ${factors ? `<div class="risk-factors">${factors}</div>` : ""}
     ${dup.length ? `<p class="risk-overlap"><span class="ro-lbl">Doubled-up names</span> — in 2+ factors: ${dup.map(esc).join(" · ")}</p>` : ""}
     ${r.note ? `<p class="risk-note">${esc(r.note)}</p>` : ""}`;
