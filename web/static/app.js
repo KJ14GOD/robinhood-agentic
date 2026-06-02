@@ -32,6 +32,9 @@ const CHART_STORE = {};
 const CHART_CACHE = {};   // body cache, TTL'd — decides when to refetch from the server
 const CHART_RAW = {};     // last raw server chart per key, no TTL — for re-applying the live tip
 const PREFETCHING = new Set();
+const SPARK_SPAN = "1m";          // span used for the per-holding row sparklines
+const SPAN_WORD = { "1d": "Today", "1w": "Past week", "1m": "Past month", "3m": "Past 3 months", "6m": "Past 6 months", "1y": "Past year" };
+const spanWord = (s) => SPAN_WORD[s] || (s || "").toUpperCase();
 
 function chartTtl(span) {
   return ({ "1d": 20000, "1w": 45000, "1m": 120000, "3m": 300000, "6m": 600000, "1y": 900000 })[span] || 300000;
@@ -87,8 +90,9 @@ function paintChart(box, rawChart, ticker) {
   CHART_RAW[`${ticker}:${CHART_SPAN}`] = rawChart;
   const chart = withLiveTip(rawChart, ticker);
   box.classList.remove("loading", "refreshing");
-  const retClass = (chart.return_pct || 0) >= 0 ? "pos" : "neg";
-  $("#chartMeta").innerHTML = `<span class="${retClass}">${pct(chart.return_pct || 0)}</span> over ${esc(CHART_SPAN.toUpperCase())}`;
+  // The period is the calm subtitle under the title; the live move (value + colored
+  // change) lives in the big price block inside chartBlock and updates on hover.
+  $("#chartMeta").textContent = spanWord(CHART_SPAN);
   box.innerHTML = chartBlock(chart);
   bindChartInteractions();
 }
@@ -122,7 +126,7 @@ function renderState() {
   if (!STATE.sync_ok && STATE.sync_message) toast(STATE.sync_message);
   else if (STATE.portfolio.pricing_warning) console.warn(STATE.portfolio.pricing_warning);
   renderToday();
-  renderHoldings(); renderProfile(); renderEditor();
+  renderHoldings(); renderAllocation(); renderProfile(); renderEditor();
   renderBriefings((STATE.research || {}).briefings || []);
   if ($("#portfolio").classList.contains("active")) loadPortfolioChart();
   if ($("#memory").classList.contains("active")) renderMemory();
@@ -190,6 +194,7 @@ function renderHoldings() {
         <div class="sym">${h.ticker}</div>
         <div class="sub2">${h.quantity}@$${h.current_price.toFixed(2)} · ${h.weight.toFixed(1)}%</div>
       </div>
+      <div class="hrow-spark ${cls(h.unrealized_pct)}" data-spark="${h.ticker}"></div>
       <div class="hrow-v">
         <div class="val">${money0(h.market_value)}</div>
         <div class="chg ${cls(h.unrealized_pct)}">${pct(h.unrealized_pct)}</div>
@@ -200,7 +205,94 @@ function renderHoldings() {
   $("#holdNote").textContent = !STATE.sync_ok ? STATE.sync_message :
     STATE.source === "manual" ? "" :
     `read-only · ${STATE.portfolio.pricing_source || "Robinhood"}`;
+  loadSparklines();
 }
+
+// Tiny price line for each holding row, colored to match the row's P/L so a row
+// reads as one green/red unit. Reuses the same /api/chart endpoint + cache as the
+// hero, so each ticker is fetched at most once per page load.
+function sparkSvg(points, k) {
+  const { path } = svgPath(points, 80, 26, 2);
+  if (!path) return "";
+  const stroke = k === "neg" ? "#ff6f5e" : "#3fcf6a";
+  return `<svg viewBox="0 0 80 26" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function loadSparklines() {
+  const holds = (STATE && STATE.portfolio && STATE.portfolio.holdings) || [];
+  holds.forEach((h) => {
+    const key = `${h.ticker}:${SPARK_SPAN}`;
+    const draw = (chart) => {
+      const el = document.querySelector(`.hrow-spark[data-spark="${h.ticker}"]`);
+      if (el && chart && chart.points) el.innerHTML = sparkSvg(chart.points, cls(h.unrealized_pct));
+    };
+    const ready = cachedChart(key) || CHART_RAW[key];
+    if (ready) { draw(ready); return; }
+    if (PREFETCHING.has(key)) return;
+    PREFETCHING.add(key);
+    fetch(`/api/chart/${encodeURIComponent(h.ticker)}?span=${SPARK_SPAN}`)
+      .then((r) => r.json())
+      .then((chart) => { if (chart && chart.points) { setCachedChart(key, SPARK_SPAN, chart); draw(chart); } })
+      .catch(() => {})
+      .finally(() => PREFETCHING.delete(key));
+  });
+}
+
+// Allocation donut — the same holdings as the list, seen as one ring. Slices and
+// legend rows drive the hero chart too, and the whole ring reacts to the current
+// selection (focused slice pops, the rest dim, center shows its weight).
+const ALLOC_COLORS = ["#10a348", "#0d9488", "#2563eb", "#6e56cf", "#b7791f", "#db2777", "#0891b2", "#65a30d", "#9333ea", "#e11d48"];
+function renderAllocation() {
+  const box = $("#allocDonut");
+  if (!box || !STATE) return;
+  const pf = STATE.portfolio;
+  const tv = pf.total_value || 0;
+  const holds = (pf.holdings || []).slice().sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
+  if (!holds.length || tv <= 0) { box.innerHTML = `<p class="muted alloc-empty">No allocation to show yet.</p>`; return; }
+
+  const slices = holds.map((h, i) => ({ ticker: h.ticker, val: h.market_value || 0, pct: h.weight || 0, color: ALLOC_COLORS[i % ALLOC_COLORS.length], click: true }));
+  // Cash is the residual of equity not in positions (not buying power, which can
+  // include margin) — so holdings + cash always sum to exactly 100% of the ring.
+  const investedVal = slices.reduce((s, x) => s + x.val, 0);
+  const cashVal = Math.max(0, tv - investedVal);
+  if (cashVal / tv > 0.005) slices.push({ ticker: "Cash", val: cashVal, pct: cashVal / tv * 100, color: "#cbd5e1", click: false });
+
+  // Geometry is normalized to the slice total so the ring always closes cleanly,
+  // even if reported equity differs slightly from summed positions + cash.
+  const total = slices.reduce((s, x) => s + x.val, 0) || 1;
+  const R = 52, C = 2 * Math.PI * R, BASE = 17;
+  const sel = SELECTED_CHART;
+  let acc = 0;
+  const segs = slices.map((s) => {
+    const frac = s.val / total;
+    const dash = `${(frac * C).toFixed(2)} ${C.toFixed(2)}`;
+    const off = `${(-acc * C).toFixed(2)}`;
+    acc += frac;
+    const dim = (sel !== "portfolio" && sel !== s.ticker) ? "opacity:.25;" : "";
+    const sw = sel === s.ticker ? BASE + 4 : BASE;
+    const handlers = s.click ? `onclick="selectPortfolioChart('${s.ticker}')" style="cursor:pointer;${dim}"` : `style="${dim}"`;
+    return `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${s.color}" stroke-width="${sw}" stroke-dasharray="${dash}" stroke-dashoffset="${off}" ${handlers}><title>${esc(s.ticker)} · ${s.pct.toFixed(1)}%</title></circle>`;
+  }).join("");
+
+  const focus = sel !== "portfolio" ? slices.find((s) => s.ticker === sel) : null;
+  const cTop = focus ? `${focus.pct.toFixed(1)}%` : `${holds.length}`;
+  const cBot = focus ? esc(focus.ticker) : holds.length === 1 ? "position" : "positions";
+
+  const legend = slices.map((s) => `
+    <div class="lg-row ${sel === s.ticker ? "on" : ""} ${s.click ? "" : "static"}" ${s.click ? `onclick="selectPortfolioChart('${s.ticker}')"` : ""}>
+      <span class="lg-dot" style="background:${s.color}"></span>
+      <span class="lg-tk">${esc(s.ticker)}</span>
+      <span class="lg-pct">${s.pct.toFixed(1)}%</span>
+    </div>`).join("");
+
+  box.innerHTML = `
+    <div class="donut">
+      <svg viewBox="0 0 120 120" aria-label="allocation by holding"><g transform="rotate(-90 60 60)">${segs}</g></svg>
+      <div class="donut-c"><strong>${cTop}</strong><span>${cBot}</span></div>
+    </div>
+    <div class="alloc-legend">${legend}</div>`;
+}
+window.renderAllocation = renderAllocation;
 
 function svgPath(points, w = 760, h = 220, pad = 10) {
   const pts = (points || []).map((p) => p.close).filter((n) => Number.isFinite(n));
@@ -237,7 +329,10 @@ function chartBlock(chart, opts = {}) {
   const id = "chart_" + Math.random().toString(36).slice(2);
   CHART_STORE[id] = { chart, coords, w, h, first };
   return `<div class="chart-frame" data-chart-id="${id}">
-    <div class="chart-price"><strong>${money(latest)}</strong><span class="${up ? "pos" : "neg"}">${pct(chart.return_pct || 0)}</span><em>${chartTime((chart.points || []).at(-1)?.at)}</em></div>
+    <div class="chart-price">
+      <strong class="cp-val ${up ? "pos" : "neg"}">${money(latest)}</strong>
+      <span class="cp-chg ${up ? "pos" : "neg"}"><span class="cp-move">${up ? "▲" : "▼"} ${money(Math.abs(latest - first))} (${Math.abs(chart.return_pct || 0).toFixed(2)}%)</span><em class="cp-time">${chartTime((chart.points || []).at(-1)?.at)}</em></span>
+    </div>
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="${esc(chart.ticker)} chart">
       <path d="M10,${baseY} L${w - 10},${baseY}" class="baseline"/>
       <path d="${path}" fill="none" stroke="${up ? "#10a348" : "#d9432f"}" stroke-width="${opts.stroke || 3}" vector-effect="non-scaling-stroke"/>
@@ -248,6 +343,20 @@ function chartBlock(chart, opts = {}) {
     <div class="chart-tooltip hidden"></div>
     <div class="sub2">${esc(chart.source || "chart")}</div>
   </div>`;
+}
+
+// One place that fills the hero price block — used by the initial paint's
+// counterparts (hover/leave) so the value, arrow, colored change and time always
+// move together and never disagree.
+function setHeroPrice(frame, value, delta, ret, timeStr) {
+  const k = ret >= 0 ? "pos" : "neg";
+  const val = frame.querySelector(".cp-val");
+  const chg = frame.querySelector(".cp-chg");
+  if (!val || !chg) return;
+  val.textContent = money(value); val.className = "cp-val " + k;
+  chg.className = "cp-chg " + k;
+  chg.querySelector(".cp-move").textContent = `${ret >= 0 ? "▲" : "▼"} ${money(Math.abs(delta))} (${Math.abs(ret).toFixed(2)}%)`;
+  chg.querySelector(".cp-time").textContent = timeStr || "";
 }
 
 function chartHover(event, svg) {
@@ -264,11 +373,7 @@ function chartHover(event, svg) {
   dot.setAttribute("cx", best.x); dot.setAttribute("cy", best.y);
   line.classList.remove("hidden"); dot.classList.remove("hidden");
   const ret = stored.first ? ((best.close - stored.first) / stored.first * 100) : 0;
-  const price = frame.querySelector(".chart-price");
-  price.querySelector("strong").textContent = money(best.close);
-  price.querySelector("span").textContent = pct(ret);
-  price.querySelector("span").className = ret >= 0 ? "pos" : "neg";
-  price.querySelector("em").textContent = chartTime(best.at);
+  setHeroPrice(frame, best.close, best.close - stored.first, ret, chartTime(best.at));
   const tip = frame.querySelector(".chart-tooltip");
   tip.innerHTML = `<strong>${money(best.close)}</strong><span>${chartTime(best.at)}</span>`;
   tip.style.left = `${Math.min(Math.max((best.x / stored.w) * 100, 6), 94)}%`;
@@ -283,12 +388,8 @@ function chartLeave(svg) {
   svg.querySelector(".crosshair-dot")?.classList.add("hidden");
   frame.querySelector(".chart-tooltip")?.classList.add("hidden");
   const chart = stored.chart;
-  const up = (chart.return_pct || 0) >= 0;
-  const price = frame.querySelector(".chart-price");
-  price.querySelector("strong").textContent = money(chart.latest || 0);
-  price.querySelector("span").textContent = pct(chart.return_pct || 0);
-  price.querySelector("span").className = up ? "pos" : "neg";
-  price.querySelector("em").textContent = chartTime((chart.points || []).at(-1)?.at);
+  setHeroPrice(frame, chart.latest || 0, (chart.latest || 0) - stored.first,
+    chart.return_pct || 0, chartTime((chart.points || []).at(-1)?.at));
 }
 
 function bindChartInteractions() {
@@ -309,6 +410,7 @@ async function loadPortfolioChart({ force = false } = {}) {
   const cacheKey = `${ticker}:${CHART_SPAN}`;
   $("#chartTitle").textContent = label;
   $("#resetChart").classList.toggle("hidden", ticker === "portfolio");
+  document.querySelector(".portfolio-chart")?.classList.toggle("linked", ticker !== "portfolio");
 
   // Fresh body cached → paint it (with a live tip from current STATE) and stop.
   const cached = force ? null : cachedChart(cacheKey);
@@ -367,6 +469,7 @@ function selectPortfolioChart(ticker) {
   // Clicking the already-selected holding again jumps back to the full portfolio.
   SELECTED_CHART = (next !== "portfolio" && SELECTED_CHART === next) ? "portfolio" : next;
   renderHoldings();
+  renderAllocation();
   loadPortfolioChart();
 }
 window.selectPortfolioChart = selectPortfolioChart;

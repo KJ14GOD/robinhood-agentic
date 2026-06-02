@@ -88,32 +88,31 @@
 
     <!-- PORTFOLIO -->
     <section id="portfolio" class="panel">
-      <div class="pf-grid">
-        <div class="pf-main">
-          <div class="portfolio-chart">
-            <div class="row between">
-              <div>
-                <div class="chart-title-row">
-                  <h2 id="chartTitle">Portfolio</h2>
-                  <button class="chart-reset hidden" id="resetChart">← Back to Portfolio</button>
-                </div>
-                <p class="sub" id="chartMeta">Loading chart...</p>
-              </div>
-              <div class="seg" id="chartSpans">
-                <button data-span="1d">1D</button>
-                <button data-span="1w">1W</button>
-                <button data-span="1m">1M</button>
-                <button class="active" data-span="3m">3M</button>
-                <button data-span="6m">6M</button>
-                <button data-span="1y">1Y</button>
-              </div>
+      <!-- hero chart — full width -->
+      <div class="portfolio-chart">
+        <div class="row between">
+          <div>
+            <div class="chart-title-row">
+              <h2 id="chartTitle">Portfolio</h2>
+              <button class="chart-reset hidden" id="resetChart">← Portfolio</button>
             </div>
-            <div id="portfolioChart" class="chart-large loading"><span class="spin"></span> Loading chart...</div>
+            <p class="sub" id="chartMeta">Loading chart...</p>
           </div>
-          <div id="riskBox" class="risk-box hidden"></div>
+          <div class="seg" id="chartSpans">
+            <button data-span="1d">1D</button>
+            <button data-span="1w">1W</button>
+            <button data-span="1m">1M</button>
+            <button class="active" data-span="3m">3M</button>
+            <button data-span="6m">6M</button>
+            <button data-span="1y">1Y</button>
+          </div>
         </div>
+        <div id="portfolioChart" class="chart-large loading"><span class="spin"></span> Loading chart...</div>
+      </div>
 
-        <aside class="pf-side">
+      <!-- holdings + allocation — one linked band -->
+      <div class="pf-band">
+        <div class="pf-card pf-holdings">
           <div class="row between holdings-head">
             <h2>Holdings</h2>
             <span class="muted" id="holdNote"></span>
@@ -128,8 +127,15 @@
               <button class="primary" id="saveHold">Save</button>
             </div>
           </div>
+        </div>
+        <aside class="pf-card pf-alloc">
+          <div class="holdings-head"><h2>Allocation</h2></div>
+          <div id="allocDonut" class="alloc-wrap"></div>
         </aside>
       </div>
+
+      <!-- structural risk — full width -->
+      <div id="riskBox" class="risk-box hidden"></div>
     </section>
 
     <!-- ACTIVITY: dense terminal log of what the brain noticed and decided -->
