@@ -70,22 +70,33 @@ nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px
 .dr-web p{margin:5px 0 0;font-size:13px;line-height:1.55;color:var(--ink2);
   max-height:220px;overflow-y:auto}
 
-/* structural risk — portfolio tab */
-.risk-box{margin:18px 0 8px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;
+/* structural risk — portfolio tab (factor-exposure meters) */
+.risk-box{margin:18px 0 10px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;
   background:var(--surface);box-shadow:var(--shadow)}
-.risk-box.hot{border-left:3px solid var(--amber);background:#fffdf8}
 .risk-head{display:flex;align-items:baseline;justify-content:space-between}
-.risk-head h3{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.risk-head h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
 .risk-asof{font-size:11px;color:var(--faint);font-family:var(--mono)}
-.risk-headline{margin:8px 0 4px;font-size:15px;font-weight:600;color:var(--txt)}
+.risk-loading{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin:12px 0 2px}
+.risk-headline{margin:10px 0 2px;font-size:16px;font-weight:600;color:var(--txt);line-height:1.35}
 .risk-headline.hot{color:var(--amber)}
-.risk-list{margin-top:10px;display:flex;flex-direction:column;gap:9px}
-.risk-row{display:grid;grid-template-columns:46px minmax(0,1fr);align-items:baseline;gap:12px}
-.risk-w{font-family:var(--mono);font-size:15px;font-weight:680;color:var(--ink2);text-align:right}
-.risk-w.hot{color:var(--amber)}
-.risk-label{font-size:13.5px;color:var(--txt);font-weight:560}
-.risk-tks{font-family:var(--mono);font-size:11.5px;color:var(--muted);font-weight:400;margin-left:4px}
-.risk-breaks{font-size:12.5px;color:var(--muted);margin-top:2px}
+.risk-factors{margin-top:14px}
+.risk-factor{padding:12px 0;border-top:1px solid var(--line2)}
+.risk-factor:first-child{border-top:0;padding-top:4px}
+.rf-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.rf-label{font-size:13.5px;font-weight:560;color:var(--txt)}
+.rf-pct{font-family:var(--mono);font-size:14px;font-weight:680;color:var(--ink2)}
+.risk-factor.lead .rf-label,.risk-factor.lead .rf-pct{color:var(--amber)}
+.rf-meter{height:6px;margin:7px 0 9px;background:var(--line2);border-radius:4px;overflow:hidden}
+.rf-meter i{display:block;height:100%;background:var(--faint);border-radius:4px}
+.risk-factor.lead .rf-meter i{background:var(--amber)}
+.rf-tks{display:flex;flex-wrap:wrap;gap:6px}
+.rf-tk{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--raised);
+  padding:2px 7px;border-radius:5px}
+.rf-tk.dup{color:var(--ink2);font-weight:680;background:#fdf3e0}
+.rf-breaks{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.45}
+.risk-overlap{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line2);
+  font-size:12.5px;color:var(--muted)}
+.ro-lbl{color:var(--ink2);font-weight:620}
 .risk-note{margin:10px 0 0;font-size:12.5px;color:var(--muted);font-style:italic}
 
 .panel{display:none;animation:fade .22s ease}

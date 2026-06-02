@@ -973,24 +973,46 @@ $("#runScore").onclick = () => loadScore(true);
 async function loadStructuralRisk() {
   const box = $("#riskBox");
   if (!box) return;
+  box.classList.remove("hidden", "hot");
+  box.innerHTML = `<div class="risk-head"><h3>Structural risk</h3></div>
+    <p class="risk-loading"><span class="spin"></span> Analyzing portfolio structure…</p>`;
   let r;
-  try { r = await api("structural_risk"); } catch (e) { return; }
+  try { r = await api("structural_risk"); } catch (e) { box.classList.add("hidden"); return; }
   if (!r || !r.headline) { box.classList.add("hidden"); return; }
+  renderStructuralRisk(r);
+}
+
+function renderStructuralRisk(r) {
+  const box = $("#riskBox");
+  if (!box) return;
+  // Overlapping factor lenses (not pie slices), sorted by exposure. A ticker in 2+ factors is a
+  // "doubled-up" name — the real concentration — so we mark those chips and call them out.
+  const clusters = (r.clusters || []).slice().sort((a, b) => (b.weight_pct || 0) - (a.weight_pct || 0));
+  const count = {};
+  clusters.forEach((c) => (c.tickers || []).forEach((t) => { count[t] = (count[t] || 0) + 1; }));
+  const dup = Object.keys(count).filter((t) => count[t] >= 2);
+
+  const factors = clusters.map((c, i) => {
+    const lead = i === 0 && r.concentrated;
+    const w = Math.max(2, Math.min(100, Math.round(c.weight_pct || 0)));
+    const chips = (c.tickers || []).map((t) =>
+      `<span class="rf-tk ${count[t] >= 2 ? "dup" : ""}">${esc(t)}</span>`).join(" ");
+    return `<div class="risk-factor ${lead ? "lead" : ""}">
+      <div class="rf-top"><span class="rf-label">${esc(c.label)}</span><span class="rf-pct">${Math.round(c.weight_pct || 0)}%</span></div>
+      <div class="rf-meter"><i style="width:${w}%"></i></div>
+      <div class="rf-tks">${chips}</div>
+      ${c.breaks_if ? `<div class="rf-breaks">${esc(c.breaks_if)}</div>` : ""}
+    </div>`;
+  }).join("");
+
   box.classList.remove("hidden");
   box.classList.toggle("hot", !!r.concentrated);
-  const rows = (r.clusters || []).map((c) => `
-    <div class="risk-row">
-      <span class="risk-w ${c.weight_pct >= 40 ? "hot" : ""}">${Math.round(c.weight_pct)}%</span>
-      <div class="risk-main">
-        <div class="risk-label">${esc(c.label)} <span class="risk-tks">${(c.tickers || []).map(esc).join(", ")}</span></div>
-        ${c.breaks_if ? `<div class="risk-breaks">breaks if: ${esc(c.breaks_if)}</div>` : ""}
-      </div>
-    </div>`).join("");
   box.innerHTML = `
     <div class="risk-head"><h3>Structural risk</h3>
-      <span class="risk-asof">${r.as_of ? new Date(r.as_of).toLocaleDateString() : ""}</span></div>
+      <span class="risk-asof">${r.as_of ? new Date(r.as_of).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span></div>
     <p class="risk-headline ${r.concentrated ? "hot" : ""}">${esc(r.headline)}</p>
-    ${rows ? `<div class="risk-list">${rows}</div>` : ""}
+    ${factors ? `<div class="risk-factors">${factors}</div>` : ""}
+    ${dup.length ? `<p class="risk-overlap"><span class="ro-lbl">Doubled-up names</span> — in 2+ factors: ${dup.map(esc).join(" · ")}</p>` : ""}
     ${r.note ? `<p class="risk-note">${esc(r.note)}</p>` : ""}`;
 }
 
