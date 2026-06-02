@@ -70,34 +70,34 @@ nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px
 .dr-web p{margin:5px 0 0;font-size:13px;line-height:1.55;color:var(--ink2);
   max-height:220px;overflow-y:auto}
 
-/* structural risk — portfolio tab (factor-exposure meters) */
-.risk-box{margin:18px 0 10px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;
-  background:var(--surface);box-shadow:var(--shadow)}
+/* structural risk — dark card matching the chart above it; one restrained amber accent */
+.risk-box{margin:0;padding:18px 20px;border:1px solid #151815;border-radius:16px;
+  background:#050605;color:#fff;box-shadow:var(--shadow)}
 .risk-head{display:flex;align-items:baseline;justify-content:space-between}
-.risk-head h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
-.risk-asof{font-size:11px;color:var(--faint);font-family:var(--mono)}
-.risk-loading{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin:12px 0 2px}
-.risk-headline{margin:10px 0 2px;font-size:16px;font-weight:600;color:var(--txt);line-height:1.35}
-.risk-headline.hot{color:var(--amber)}
-.risk-factors{margin-top:14px}
-.risk-factor{padding:12px 0;border-top:1px solid var(--line2)}
-.risk-factor:first-child{border-top:0;padding-top:4px}
+.risk-head h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#8f9690}
+.risk-asof{font-size:11px;color:#6e746e;font-family:var(--mono)}
+.risk-loading{display:flex;align-items:center;gap:8px;color:#8f9690;font-size:13px;margin:14px 0 2px}
+.risk-headline{margin:12px 0 2px;font-size:17px;font-weight:600;color:#f3f4f2;line-height:1.35}
+.risk-headline.hot{color:#f0b252}
+.risk-factors{margin-top:16px}
+.risk-factor{padding:13px 0;border-top:1px solid #1a1e1a}
+.risk-factor:first-child{border-top:0;padding-top:2px}
 .rf-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.rf-label{font-size:13.5px;font-weight:560;color:var(--txt)}
-.rf-pct{font-family:var(--mono);font-size:14px;font-weight:680;color:var(--ink2)}
-.risk-factor.lead .rf-label,.risk-factor.lead .rf-pct{color:var(--amber)}
-.rf-meter{height:6px;margin:7px 0 9px;background:var(--line2);border-radius:4px;overflow:hidden}
-.rf-meter i{display:block;height:100%;background:var(--faint);border-radius:4px}
-.risk-factor.lead .rf-meter i{background:var(--amber)}
+.rf-label{font-size:13.5px;font-weight:560;color:#e6e8e5}
+.rf-pct{font-family:var(--mono);font-size:14px;font-weight:680;color:#c2c6c2}
+.risk-factor.lead .rf-label,.risk-factor.lead .rf-pct{color:#f0b252}
+.rf-meter{height:6px;margin:8px 0 10px;background:#1c211c;border-radius:4px;overflow:hidden}
+.rf-meter i{display:block;height:100%;background:#565c56;border-radius:4px}
+.risk-factor.lead .rf-meter i{background:#f0b252}
 .rf-tks{display:flex;flex-wrap:wrap;gap:6px}
-.rf-tk{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--raised);
+.rf-tk{font-family:var(--mono);font-size:11.5px;color:#9aa09a;background:#161a16;
   padding:2px 7px;border-radius:5px}
-.rf-tk.dup{color:var(--ink2);font-weight:680;background:#fdf3e0}
-.rf-breaks{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.45}
-.risk-overlap{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line2);
-  font-size:12.5px;color:var(--muted)}
-.ro-lbl{color:var(--ink2);font-weight:620}
-.risk-note{margin:10px 0 0;font-size:12.5px;color:var(--muted);font-style:italic}
+.rf-tk.dup{color:#0a0b0a;font-weight:680;background:#f0b252}
+.rf-breaks{font-size:12.5px;color:#8f9690;margin-top:9px;line-height:1.45}
+.risk-overlap{margin:16px 0 0;padding-top:13px;border-top:1px solid #1a1e1a;
+  font-size:12.5px;color:#8f9690}
+.ro-lbl{color:#e6e8e5;font-weight:620}
+.risk-note{margin:10px 0 0;font-size:12.5px;color:#8f9690;font-style:italic}
 
 .panel{display:none;animation:fade .22s ease}
 .panel.active{display:block}
@@ -230,18 +230,31 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--txt)}
 .chart-tooltip strong{display:block;font-size:12px}
 .chart-tooltip span{display:block;font-family:var(--mono);font-size:10px;color:#9aa39c;margin-top:1px}
 .empty-chart{display:flex;align-items:center;justify-content:center;height:240px;color:#8f9690;border:1px dashed #2d332f;border-radius:12px;background:#090a09}
-.holdings-head{margin-top:4px}
-.holdlist{margin-top:8px}
-.hrow{display:grid;grid-template-columns:1.4fr 2fr 1fr 1fr;align-items:center;gap:14px;
-  padding:15px 4px;border-bottom:1px solid var(--line2);cursor:pointer;transition:background .12s}
+/* portfolio: two-column — chart + structural risk (left), holdings sidebar (right) */
+.pf-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:22px;align-items:start}
+.pf-main{min-width:0}
+.pf-side{border:1px solid var(--line);border-radius:14px;background:var(--surface);
+  box-shadow:var(--shadow);padding:6px 8px 10px;position:sticky;top:16px}
+.pf-side .holdings-head{margin:0;padding:10px 8px 4px}
+.pf-side .holdings-head h2{font-size:15px}
+.pf-side #holdNote{font-size:11px}
+@media(max-width:980px){.pf-grid{grid-template-columns:1fr}.pf-side{position:static}}
+
+.holdlist{margin-top:4px}
+.hrow{display:flex;align-items:center;gap:10px;position:relative;padding:10px;border-radius:9px;
+  cursor:pointer;transition:background .12s}
 .hrow:hover{background:var(--raised)}
-.hrow.selected{background:#f0faf2}
-.hrow .sym{font-weight:700;font-size:15px}
-.hbar{height:6px;background:var(--line);border-radius:6px;overflow:hidden}
-.hbar i{display:block;height:100%;background:var(--green);border-radius:6px}
-.hrow .val{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
-.hrow .chg{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;font-size:14px}
-.h-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.hrow.selected{background:#eef6ef;box-shadow:inset 0 0 0 1px var(--line)}
+.hrow-l{flex:1;min-width:0}
+.hrow .sym{font-weight:640;font-size:14px}
+.hrow .sub2{margin-top:2px}
+.hrow-v{text-align:right;flex-shrink:0;transition:opacity .12s}
+.hrow .val{font-family:var(--mono);font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.hrow .chg{font-family:var(--mono);font-size:11.5px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.hrow-an{position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;pointer-events:none;transition:opacity .12s}
+.hrow:hover .hrow-v{opacity:0}
+.hrow:hover .hrow-an{opacity:1;pointer-events:auto}
+.hrow-empty{padding:14px 10px}
 
 .editor{margin-top:30px;background:var(--raised);border-radius:16px;padding:20px}
 .editrow{display:flex;gap:8px;margin-bottom:8px}

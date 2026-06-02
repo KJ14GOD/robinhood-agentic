@@ -184,17 +184,18 @@ function renderToday() {
 
 function renderHoldings() {
   const hs = STATE.portfolio.holdings;
-  const maxw = Math.max(1, ...hs.map((h) => h.weight));
   $("#holdRows").innerHTML = hs.map((h) => `
     <div class="hrow ${SELECTED_CHART === h.ticker ? "selected" : ""}" onclick="selectPortfolioChart('${h.ticker}')">
-      <div><div class="sym">${h.ticker}</div><div class="sub2">${h.quantity}@$${h.current_price.toFixed(2)}</div></div>
-      <div class="hbar"><i style="width:${(h.weight / maxw) * 100}%"></i></div>
-      <div class="val">${money0(h.market_value)}<div class="sub2">${h.weight.toFixed(1)}%</div></div>
-      <div class="h-actions">
-        <div class="chg ${cls(h.unrealized_pct)}">${pct(h.unrealized_pct)}</div>
-        <button class="ghost mini" onclick="event.stopPropagation(); analyze('${h.ticker}')">Analyze</button>
+      <div class="hrow-l">
+        <div class="sym">${h.ticker}</div>
+        <div class="sub2">${h.quantity}@$${h.current_price.toFixed(2)} · ${h.weight.toFixed(1)}%</div>
       </div>
-    </div>`).join("") || `<p class="muted">No holdings yet.${STATE.source === "manual" ? " Add some below." : ""}</p>`;
+      <div class="hrow-v">
+        <div class="val">${money0(h.market_value)}</div>
+        <div class="chg ${cls(h.unrealized_pct)}">${pct(h.unrealized_pct)}</div>
+      </div>
+      <button class="ghost mini hrow-an" onclick="event.stopPropagation(); analyze('${h.ticker}')">Analyze</button>
+    </div>`).join("") || `<p class="muted hrow-empty">No holdings yet.${STATE.source === "manual" ? " Add some below." : ""}</p>`;
   $("#editor").classList.toggle("hidden", STATE.source !== "manual");
   $("#holdNote").textContent = !STATE.sync_ok ? STATE.sync_message :
     STATE.source === "manual" ? "" :
