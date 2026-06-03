@@ -41,17 +41,30 @@ def _fake_signals_many(tickers, refresh=False, **kw):
     return {t: TrendSignals(ticker=t, price=100.0, sector="Industrials", rsi_14=55.0) for t in tickers}
 
 
+_WEB_CALLS = 0
+
+
+def _fake_web_research(task, **kw):
+    """Stub the live web-search 'gather' step so seeding stays offline + deterministic."""
+    global _WEB_CALLS
+    _WEB_CALLS += 1
+    return "Live, on-theme names (stubbed brief): LMT, RTX."
+
+
 class MissionTests(unittest.TestCase):
     def setUp(self):
-        global _CLASSIFY_CALLS, SEED_TICKERS
+        global _CLASSIFY_CALLS, SEED_TICKERS, _WEB_CALLS
         _CLASSIFY_CALLS = 0
+        _WEB_CALLS = 0
         SEED_TICKERS = [("LMT", "prime contractor"), ("RTX", "missiles + engines")]
         missions.llm.parse = _fake_parse
+        missions.llm.web_research = _fake_web_research
         missions.get_signals_many = _fake_signals_many
         self.profile = RiskProfile()
 
     def test_create_seeds_classifies_and_persists(self):
         m = missions.create_mission("track defense stocks", "any", self.profile)
+        self.assertGreaterEqual(_WEB_CALLS, 1)  # seeding now searches the live web first
         self.assertEqual(m.theme, "Defense primes")
         labels = {c.ticker: c.label for c in m.candidates}
         self.assertEqual(labels.get("LMT"), "BUY")
@@ -65,6 +78,15 @@ class MissionTests(unittest.TestCase):
         lmt = next(c for c in reloaded.candidates if c.ticker == "LMT")
         self.assertEqual(lmt.label, "BUY")
         self.assertEqual(lmt.signals.get("sector"), "Industrials")
+
+    def test_seed_falls_back_when_web_search_fails(self):
+        """A web-search failure must not block seeding — it degrades to the model's
+        own knowledge (the parse step) rather than raising."""
+        def boom(task, **kw):
+            raise RuntimeError("search down")
+        missions.llm.web_research = boom
+        m = missions.create_mission("track defense stocks", "any", self.profile)
+        self.assertEqual({c.ticker for c in m.candidates}, {"LMT", "RTX"})
 
     def test_buy_promotion_emits_event(self):
         m = missions.create_mission("track defense stocks", "any", self.profile)

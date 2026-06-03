@@ -6,9 +6,10 @@ cadence re-labels each one BUY / WATCH / WAIT / REJECT through the user's profil
 Material changes (a new name, a promotion to BUY) are emitted as `mission_update`
 events into the Today/Activity feed, so the brain reports back on its own.
 
-LLM spend is deliberately bounded: the model is called to *seed* the roster when a
-mission is created and to *re-classify* on a cooldown — never on every background
-cycle. The monitoring in between is deterministic and free.
+LLM spend is deliberately bounded: the roster is *seeded* with a live web search +
+structure step when a mission is created and re-screened on a slow (~weekly)
+cadence, and *re-classified* on a daily cooldown — never on every background cycle.
+The monitoring in between is deterministic and free.
 """
 from __future__ import annotations
 
@@ -51,7 +52,31 @@ def _sig_snapshot(sig: TrendSignals | None) -> dict:
     return {k: getattr(sig, k) for k in _SIGNAL_KEYS if getattr(sig, k, None) is not None}
 
 
+def _seed_research_task(title: str, mode: str, profile: RiskProfile) -> str:
+    return f"""Using current information from the live web, find the real, liquid, US-listed (NYSE/Nasdaq) stocks that genuinely best fit this investing theme today: "{title}".
+
+Judge fit on the merits as of now. Include whichever names truly belong — established or newer — and don't restrict yourself to the familiar names from memory if the live picture has moved on. Equally, don't reach for obscure or just-listed names for novelty's sake: best fit wins.
+
+REQUESTED RISK FLAVOR: {mode} (stable=lower risk/beta, volatile=higher risk/upside, any=best fit)
+INVESTOR CONTEXT: {profile.describe()}
+
+Return up to {MAX_ROSTER} of the most on-theme, investable names, each with its ticker and one line on why it fits the theme right now (cite what you found). Quality over a long list."""
+
+
 def _seed_roster(title: str, mode: str, profile: RiskProfile) -> MissionSeed:
+    """Build the roster as a two-step so re-seed can surface names the model's own
+    memory can't — newer or post-cutoff names the live picture now favors. First
+    search the live web for the names that best fit the theme today, then structure
+    that cited brief into the roster. Best-effort search: if it fails we fall back to the model's
+    knowledge so a web hiccup never blocks seeding (structured output can't share a
+    request with web search, hence the two calls)."""
+    try:
+        brief = llm.web_research(_seed_research_task(title, mode, profile), max_searches=5)
+    except Exception:  # noqa: BLE001 — degrade to memory-only rather than fail the seed
+        brief = ""
+    grounding = (f"\n\nLIVE WEB RESEARCH (current and cited — prefer these names and reflect "
+                 f"what is happening now):\n{brief.strip()}" if brief.strip() else "")
+
     prompt = f"""The user wants a standing research mission: "{title}".
 
 Map this theme to a focused roster of {MAX_ROSTER} or fewer real, liquid, US-listed
@@ -59,7 +84,7 @@ tickers that genuinely fit it. Prefer the most on-theme, investable names over a
 long list — quality over quantity.
 
 REQUESTED RISK FLAVOR: {mode} (stable=lower risk/beta, volatile=higher risk/upside, any=best fit)
-INVESTOR: {profile.describe()}
+INVESTOR: {profile.describe()}{grounding}
 
 Only include tickers you are confident trade on US exchanges (NYSE/Nasdaq). For each,
 give the ticker and one line on why it fits the theme. Return a normalized short name
