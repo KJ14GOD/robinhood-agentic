@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Brain · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=31" />
+<link rel="stylesheet" href="/static/style.css?v=32" />
 </head>
 <body>
 <div id="app">
@@ -210,6 +210,19 @@
         </div>
       </div>
 
+      <div class="sc-cuts">
+        <div class="sc-cut">
+          <div class="section-head"><h3>Beating SPY</h3></div>
+          <p class="sc-cap">The brain's calls that most outran the market — alpha since each call's own entry.</p>
+          <div class="lead-list" id="scoreBest"></div>
+        </div>
+        <div class="sc-cut">
+          <div class="section-head"><h3>Lagging SPY</h3></div>
+          <p class="sc-cap">The calls that trailed the market by the most.</p>
+          <div class="lead-list" id="scoreWorst"></div>
+        </div>
+      </div>
+
       <div class="section-head"><h3>Every call</h3></div>
       <table class="grid"><thead><tr>
         <th>When</th><th>Age</th><th>Ticker</th><th>Call</th><th>Conv</th><th>Entry</th><th>Now</th><th>Return</th><th>vs SPY</th><th>Source</th>
@@ -229,6 +242,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=31"></script>
+<script src="/static/app.js?v=32"></script>
 </body>
 </html>

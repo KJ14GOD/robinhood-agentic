@@ -1093,6 +1093,21 @@ async function loadScore(refresh = false) {
     .map((r) => scCut(titleCase(r.key), r)).join("")
     || lockRow("By-engine edge unlocks once calls mature.");
 
+  // Best / worst calls by alpha (vs SPY) — computed server-side over matured,
+  // benchmark-anchored calls; "which calls beat the market, and by how much."
+  const leadRow = (t) => `
+    <div class="lead-row">
+      <span class="lead-tk" onclick="analyze('${t.ticker}')">${t.ticker}</span>
+      <span class="lead-meta">${esc(t.decision_label || t.action)} · ${esc(titleCase(t.source))}</span>
+      <span class="lead-alpha ${cls(t.alpha_pct)}">${pct(t.alpha_pct)}<em>vs SPY</em></span>
+      <span class="lead-ret ${cls(t.return_pct)}">${pct(t.return_pct)}<em>return</em></span>
+    </div>`;
+  const lockLead = (msg) => `<p class="sc-locked-note">${esc(msg)}</p>`;
+  $("#scoreBest").innerHTML = (c.best || []).length
+    ? c.best.map(leadRow).join("") : lockLead(`Unlocks once calls clear the ${bar}-day bar.`);
+  $("#scoreWorst").innerHTML = (c.worst || []).length
+    ? c.worst.map(leadRow).join("") : lockLead("Unlocks once calls mature.");
+
   // Every call — the full ledger with age; forming rows dimmed and tagged.
   $("#scoreRows").innerHTML = (c.trades || []).map((t) => `
     <tr class="${t.mature ? "" : "sc-forming"}">

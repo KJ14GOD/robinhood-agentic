@@ -193,7 +193,11 @@ def scorecard(refresh: bool = False) -> dict:
     by_bucket = _calibration(mature)
     by_source = _group(mature, lambda t: t.source)
 
-    ranked = sorted(mature, key=lambda t: t.return_pct(), reverse=True)
+    # Leaderboard is ranked by alpha (excess vs SPY), over matured calls that
+    # actually carry a benchmark anchor — "which calls beat the market, and by
+    # how much," not raw return.
+    benched = [t for t in mature if t.has_benchmark()]
+    ranked = sorted(benched, key=lambda t: t.alpha_pct(), reverse=True)
     best = ranked[:3]
     best_ids = {t.id for t in best}
     worst = [t for t in reversed(ranked) if t.id not in best_ids][:3]
