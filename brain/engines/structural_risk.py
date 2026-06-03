@@ -34,6 +34,84 @@ class _ClusterPlan(BaseModel):
     note: str = ""
 
 
+def _thesis_text(ticker: str, theses: dict) -> str:
+    th = theses.get(ticker) or theses.get(ticker.upper()) or {}
+    parts = [ticker]
+    if isinstance(th, dict):
+        parts.extend(str(th.get(k, "")) for k in ("thesis", "invalidation", "last_decision"))
+    else:
+        parts.extend(str(getattr(th, k, "")) for k in ("thesis", "invalidation", "last_decision"))
+    return " ".join(parts).lower()
+
+
+def _rule_hits(ticker: str, text: str, tickers: set[str], words: tuple[str, ...]) -> bool:
+    return ticker in tickers or any(w in text for w in words)
+
+
+def _fallback_plan(pf: Portfolio, theses: dict) -> _ClusterPlan:
+    """Cheap structural read when the LLM is unavailable.
+
+    This is deliberately rule-based and conservative: it only names broad,
+    obvious shared drivers from tickers + stored thesis language. The UI should
+    never go blank just because the model failed to cluster the book.
+    """
+    holdings = [h.ticker.upper() for h in pf.holdings]
+    texts = {t: _thesis_text(t, theses) for t in holdings}
+    rules = [
+        (
+            "Long-duration high-beta growth",
+            "risk-on appetite for expensive, volatile growth",
+            "real yields spike or risk-off rotation hits expensive non-earners simultaneously",
+            {"RKLB", "APLD", "IREN", "SOFI", "ONDS", "ASTS", "LUNR", "ACHR", "JOBY", "IONQ", "RGTI", "UPST", "AFRM"},
+            ("high-beta", "long-duration", "unprofitable", "story stock", "momentum", "speculative", "risk-on", "parabolic"),
+        ),
+        (
+            "AI/HPC data-center capex",
+            "hyperscaler and AI infrastructure spending",
+            "AI capex cycle cools or hyperscalers delay/renegotiate buildouts",
+            {"APLD", "IREN", "NVDA", "AMD", "AVGO", "VRT", "SMCI", "DELL", "ANET", "MRVL", "TSM", "ASML", "MU", "DRAM", "QQQ", "SMH"},
+            ("ai", "data-center", "datacenter", "hyperscaler", "gpu", "hpc", "power", "cooling", "capex", "campus"),
+        ),
+        (
+            "US large-cap tech beta",
+            "mega-cap technology and Nasdaq leadership",
+            "Mag-7 multiple compression or a broad Nasdaq drawdown resets leadership",
+            {"QQQ", "VOO", "SPY", "VTI", "VGT", "XLK", "MGK", "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"},
+            ("nasdaq", "mega-cap", "large-cap tech", "index beta", "mag-7", "magnificent seven"),
+        ),
+        (
+            "Defense/aerospace + gov spend",
+            "launch, defense, and government aerospace spending",
+            "program slippage, launch failure, or budget pressure resets the sector",
+            {"RKLB", "ONDS", "LMT", "RTX", "NOC", "GD", "KTOS", "AVAV", "PLTR", "LUNR", "ASTS"},
+            ("space", "aerospace", "defense", "launch", "neutron", "drone", "government", "dod"),
+        ),
+        (
+            "Consumer credit / fintech risk",
+            "consumer credit, funding costs, and fintech sentiment",
+            "credit losses rise, funding costs stay high, or fintech multiples compress",
+            {"SOFI", "AFRM", "UPST", "HOOD", "PYPL", "SQ", "COIN"},
+            ("fintech", "credit", "loan", "bank", "consumer", "nim", "galileo"),
+        ),
+        (
+            "Crypto / Bitcoin proxy",
+            "crypto liquidity and Bitcoin mining economics",
+            "Bitcoin sells off, mining margins compress, or power economics deteriorate",
+            {"IREN", "MSTR", "COIN", "MARA", "RIOT", "CLSK", "HUT", "BITF"},
+            ("bitcoin", "crypto", "miner", "mining", "hash", "btc"),
+        ),
+    ]
+    clusters: list[_Cluster] = []
+    for label, driver, breaks_if, tickers, words in rules:
+        members = [t for t in holdings if _rule_hits(t, texts.get(t, ""), tickers, words)]
+        if members:
+            clusters.append(_Cluster(label=label, driver=driver, breaks_if=breaks_if, tickers=members))
+    return _ClusterPlan(
+        clusters=clusters,
+        note="Fallback structural map from holdings and saved thesis language; refresh thesis/deep research improves the grouping.",
+    )
+
+
 def _prompt(pf: Portfolio, profile: RiskProfile, theses: dict) -> str:
     weights = pf.weights()
     rows = []
@@ -69,7 +147,9 @@ def analyze(pf: Portfolio, profile: RiskProfile, theses: dict | None = None) -> 
     try:
         plan = llm.parse(_prompt(pf, profile, theses), _ClusterPlan, max_tokens=1500)
     except Exception:  # noqa: BLE001 — never let the risk read break the page
-        return StructuralRisk(headline="Structural read unavailable right now.", as_of=_now())
+        plan = _fallback_plan(pf, theses)
+    if not plan.clusters:
+        plan = _fallback_plan(pf, theses)
 
     clusters: list[RiskCluster] = []
     for c in plan.clusters:
@@ -82,6 +162,15 @@ def analyze(pf: Portfolio, profile: RiskProfile, theses: dict | None = None) -> 
 
     # Keep clusters that are a genuine multi-name bet, or a single name big enough to be structural.
     clusters = [c for c in clusters if len(c.tickers) >= 2 or c.weight_pct >= CONCENTRATION_ALERT_PCT]
+    if not clusters and plan.clusters:
+        plan = _fallback_plan(pf, theses)
+        for c in plan.clusters:
+            tickers = [t.upper() for t in c.tickers if t.upper() in weights]
+            if tickers:
+                clusters.append(RiskCluster(
+                    label=c.label, driver=c.driver, breaks_if=c.breaks_if, tickers=tickers,
+                    weight_pct=round(sum(weights.get(t, 0.0) for t in tickers), 1)))
+        clusters = [c for c in clusters if len(c.tickers) >= 2 or c.weight_pct >= CONCENTRATION_ALERT_PCT]
     clusters.sort(key=lambda c: c.weight_pct, reverse=True)
 
     top = clusters[0] if clusters else None

@@ -143,22 +143,47 @@ class ScorecardTests(unittest.TestCase):
         PRICES.update({"SPY": 500.0, "XLK": 200.0})
 
     def test_scorecard_structure_and_cuts(self):
+        from datetime import datetime, timedelta, timezone
         from brain.engines import evaluation
+        # Backdate past the maturity bar so these count toward the trusted headline
+        # and populate the cuts (which are computed over matured calls only).
+        old = (datetime.now(timezone.utc) - timedelta(days=evaluation.MATURE_DAYS + 5)).isoformat()
         for tkr, conv in [("EVALA", 9), ("EVALB", 2)]:
             PRICES[tkr] = 100.0
-            shadow.log_recommendation(
+            tr = shadow.log_recommendation(
                 _ticket(tkr, "buy", conv), source="discovery",
                 signals=TrendSignals(ticker=tkr, sector="Technology"))
+            tr.entry_at = old
+            repo.save_shadow_trade(tr)
         card = evaluation.scorecard(refresh=True)
 
-        for key in ("headline", "calibration", "by_source", "by_label",
+        for key in ("headline", "forming", "calibration", "by_source", "by_label",
                     "by_mode", "narrative", "best", "worst", "trades"):
             self.assertIn(key, card)
-        self.assertGreaterEqual(card["headline"]["count"], 2)
+        h = card["headline"]
+        self.assertGreaterEqual(h["matured"], 2)
+        self.assertEqual(h["count"], h["matured"])          # headline grades matured only
+        self.assertGreaterEqual(h["total"], 2)
+        self.assertIn("median_age_days", h)
         buckets = {r["key"] for r in card["calibration"]}
-        self.assertTrue({"high", "low"} & buckets)
+        self.assertTrue({"high", "low"} <= buckets)         # both matured buckets present
         self.assertTrue(any(r["key"] == "discovery" for r in card["by_source"]))
         self.assertTrue(card["narrative"] and isinstance(card["narrative"][0], str))
+        self.assertTrue(all("age_days" in r and "mature" in r for r in card["trades"]))
+
+    def test_fresh_calls_are_forming_not_graded(self):
+        """A just-logged call is too young to grade: it lands in 'forming', carries
+        mature=False, and never inflates the matured headline."""
+        from brain.engines import evaluation
+        PRICES["FRESHA"] = 100.0
+        shadow.log_recommendation(
+            _ticket("FRESHA", "buy", 7), source="analyst",
+            signals=TrendSignals(ticker="FRESHA", sector="Technology"))
+        card = evaluation.scorecard(refresh=True)
+        self.assertGreaterEqual(card["headline"]["forming"], 1)
+        row = next(r for r in card["trades"] if r["ticker"] == "FRESHA")
+        self.assertFalse(row["mature"])
+        self.assertLess(row["age_days"], evaluation.MATURE_DAYS)
 
     def test_agg_and_bucket_math(self):
         from brain.engines import evaluation as ev

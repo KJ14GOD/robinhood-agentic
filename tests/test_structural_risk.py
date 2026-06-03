@@ -85,6 +85,26 @@ class StructuralRiskTests(unittest.TestCase):
         from brain.models import StructuralRisk
         self.assertFalse(sr.maybe_alert(StructuralRisk(headline="spread", concentrated=False)))
 
+    def test_llm_failure_uses_deterministic_fallback(self):
+        sr.llm.parse = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("model unavailable"))
+        pf = Portfolio(holdings=[
+            Holding(ticker="RKLB", quantity=1, avg_cost=10, current_price=25),
+            Holding(ticker="APLD", quantity=1, avg_cost=10, current_price=20),
+            Holding(ticker="IREN", quantity=1, avg_cost=10, current_price=15),
+            Holding(ticker="QQQ", quantity=1, avg_cost=10, current_price=30),
+            Holding(ticker="VOO", quantity=1, avg_cost=10, current_price=10),
+        ], cash=0)
+        res = sr.analyze(pf, self.profile, {
+            "APLD": {"thesis": "AI data-center campus buildout"},
+            "IREN": {"thesis": "AI/HPC and bitcoin mining infrastructure"},
+            "RKLB": {"thesis": "space launch and defense aerospace growth"},
+        })
+        labels = {c.label for c in res.clusters}
+        self.assertIn("Long-duration high-beta growth", labels)
+        self.assertIn("AI/HPC data-center capex", labels)
+        self.assertTrue(res.clusters)
+        self.assertNotIn("unavailable", res.headline.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

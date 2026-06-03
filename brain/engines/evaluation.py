@@ -12,12 +12,39 @@ anchor, so un-gradeable (legacy) records can't flatter or punish the score.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from .. import shadow
 from ..models import ShadowTrade
+
+# A call has to clear this many days before it counts toward the trusted track
+# record. It's a noise floor, not a proof bar: a position marked minutes after
+# entry tells us nothing, so younger calls are reported separately as "forming"
+# and kept out of the headline win rate / alpha.
+MATURE_DAYS = 5
 
 
 def _fmt(v: float) -> str:
     return f"{v:+.1f}%"
+
+
+def _age_days(t: ShadowTrade) -> float:
+    """Calendar days a call has been alive, from entry to now."""
+    try:
+        dt = datetime.fromisoformat((t.entry_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400)
+
+
+def _median(xs: list[float]) -> float:
+    if not xs:
+        return 0.0
+    s = sorted(xs)
+    mid = len(s) // 2
+    return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
 
 
 def _bucket(conviction: int) -> str:
@@ -67,17 +94,27 @@ def _calibration(trades: list[ShadowTrade]) -> list[dict]:
     return rows
 
 
-def _narrative(headline: dict, by_bucket: list[dict], by_source: list[dict]) -> list[str]:
+def _narrative(headline: dict, forming: dict, by_bucket: list[dict], by_source: list[dict]) -> list[str]:
     """A few honest, grounded sentences on what the brain is good and bad at —
-    derived straight from the cuts, never invented."""
+    derived straight from the cuts, never invented. Maturity comes first: the read
+    leads with how young the book is before it says anything about edge."""
     out: list[str] = []
-    n = headline["count"]
-    if n == 0:
+    n = headline["count"]                       # matured calls only
+    total = headline.get("total", n)
+    forming_n = headline.get("forming", 0)
+    med = headline.get("median_age_days", 0.0)
+    bar = headline.get("mature_days", MATURE_DAYS)
+    if total == 0:
         return ["No recommendations logged yet — analyze a stock, run discovery, or "
                 "let the assistant make a call to start the track record."]
+    if n == 0:
+        prov = forming.get("avg_return_pct", 0.0)
+        return [f"No call has cleared the {bar}-day maturity bar yet — all {forming_n} are still "
+                f"forming (median age {med:.1f}d). The {_fmt(prov)} so far is mark-to-market noise, "
+                "not a track record; the scorecard fills in as calls age."]
     if n < 5:
-        out.append(f"Only {n} call{'s' if n != 1 else ''} graded so far — read these as "
-                   "early signal, not proof. The record needs depth before it's trustworthy.")
+        out.append(f"Only {n} call{'s' if n != 1 else ''} past the {bar}-day bar — early signal, "
+                   "not proof. The record needs depth before it's trustworthy.")
 
     hi = next((r for r in by_bucket if r["key"] == "high" and r["count"]), None)
     lo = next((r for r in by_bucket if r["key"] == "low" and r["count"]), None)
@@ -103,10 +140,14 @@ def _narrative(headline: dict, by_bucket: list[dict], by_source: list[dict]) -> 
         out.append(f"Against SPY, the book is {verb} the market by {_fmt(abs(headline['avg_alpha_pct']))} "
                    f"on average across {headline['benchmarked']} anchored call"
                    f"{'s' if headline['benchmarked'] != 1 else ''}.")
-    return out[:4]
+    if forming_n:
+        out.append(f"{forming_n} more call{'s' if forming_n != 1 else ''} still forming under the "
+                   f"{bar}-day bar — not yet counted above.")
+    return out[:5]
 
 
 def _row(t: ShadowTrade) -> dict:
+    age = _age_days(t)
     return {
         "id": t.id,
         "ticker": t.ticker,
@@ -121,29 +162,50 @@ def _row(t: ShadowTrade) -> dict:
         "return_pct": round(t.return_pct(), 2),
         "alpha_pct": round(t.alpha_pct(), 2) if t.has_benchmark() else None,
         "benchmarked": t.has_benchmark(),
+        "age_days": round(age, 1),
+        "mature": age >= MATURE_DAYS,
     }
 
 
 def scorecard(refresh: bool = False) -> dict:
     """The full scorecard — the bottleneck layer between 'interesting assistant'
-    and 'something you'd trust with real money.'"""
-    trades = shadow.mark_to_market(refresh=refresh)
-    headline = _agg(trades)
-    by_bucket = _calibration(trades)
-    by_source = _group(trades, lambda t: t.source)
+    and 'something you'd trust with real money.'
 
-    ranked = sorted(trades, key=lambda t: t.return_pct(), reverse=True)
+    The trusted numbers (headline, calibration, attribution) are computed over
+    *matured* calls only — anything younger than MATURE_DAYS is reported as
+    "forming" so a few days of fresh marks can't masquerade as a track record."""
+    trades = shadow.mark_to_market(refresh=refresh)
+    ages = {t.id: _age_days(t) for t in trades}
+    mature = [t for t in trades if ages[t.id] >= MATURE_DAYS]
+    forming = [t for t in trades if ages[t.id] < MATURE_DAYS]
+
+    headline = _agg(mature)
+    headline.update({
+        "total": len(trades),
+        "matured": len(mature),
+        "forming": len(forming),
+        "median_age_days": round(_median(list(ages.values())), 1),
+        "mature_days": MATURE_DAYS,
+    })
+    forming_summary = _agg(forming)
+    forming_summary["median_age_days"] = round(_median([ages[t.id] for t in forming]), 1)
+
+    by_bucket = _calibration(mature)
+    by_source = _group(mature, lambda t: t.source)
+
+    ranked = sorted(mature, key=lambda t: t.return_pct(), reverse=True)
     best = ranked[:3]
     best_ids = {t.id for t in best}
     worst = [t for t in reversed(ranked) if t.id not in best_ids][:3]
 
     return {
         "headline": headline,
+        "forming": forming_summary,
         "calibration": by_bucket,
         "by_source": by_source,
-        "by_label": _group(trades, lambda t: t.decision_label),
-        "by_mode": _group(trades, lambda t: t.risk_mode),
-        "narrative": _narrative(headline, by_bucket, by_source),
+        "by_label": _group(mature, lambda t: t.decision_label),
+        "by_mode": _group(mature, lambda t: t.risk_mode),
+        "narrative": _narrative(headline, forming_summary, by_bucket, by_source),
         "best": [_row(t) for t in best],
         "worst": [_row(t) for t in worst],
         "trades": [_row(t) for t in sorted(trades, key=lambda x: x.entry_at, reverse=True)],

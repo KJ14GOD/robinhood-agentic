@@ -249,9 +249,9 @@ def scorecard(refresh: bool = False):
 
 
 @app.get("/api/structural_risk")
-def structural_risk():
+def structural_risk(refresh: bool = False):
     """Portfolio-level structural read: correlated-bet clusters and the biggest hidden risk."""
-    return brain.structural_risk().model_dump()
+    return brain.structural_risk(force=refresh).model_dump()
 
 
 @app.get("/api/agent_runs")

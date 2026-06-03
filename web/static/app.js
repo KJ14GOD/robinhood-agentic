@@ -1020,10 +1020,12 @@ const titleCase = (s) => (s || "—").replace(/\b\w/g, (c) => c.toUpperCase());
 
 // One row of a summary cut (calibration / by-engine): count, win, return, alpha.
 function scCut(label, r) {
+  const thin = r.count < 3;   // too few to read as anything but noise
   const alpha = r.benchmarked
     ? `<span class="${cls(r.avg_alpha_pct)}">${pct(r.avg_alpha_pct)}</span>`
     : '<span class="muted">—</span>';
-  return `<tr><td>${label}</td><td>${r.count}</td>
+  return `<tr class="${thin ? "sc-thin" : ""}"${thin ? ' title="small sample — treat as noise, not signal"' : ""}>
+    <td>${label}</td><td>${r.count}${thin ? '<span class="sc-flag">thin</span>' : ""}</td>
     <td class="${cls(r.win_rate - 50)}">${r.win_rate}%</td>
     <td class="${cls(r.avg_return_pct)}">${pct(r.avg_return_pct)}</td>
     <td>${alpha}</td></tr>`;
@@ -1032,44 +1034,79 @@ function scCut(label, r) {
 async function loadScore(refresh = false) {
   const c = await api("scorecard" + (refresh ? "?refresh=1" : ""));
   const h = c.headline || {};
+  const f = c.forming || {};
   const narrative = c.narrative || [];
+  const bar = h.mature_days || 5;
+  const matured = h.matured || 0, total = h.total || 0, forming = h.forming || 0;
+  const med = h.median_age_days ?? 0;
+  const stamp = new Date().toLocaleTimeString();
 
-  if (!h.count) {
+  // Truly empty ledger.
+  if (!total) {
     $("#scoreRead").innerHTML = `<p class="sc-empty">${esc(narrative[0]
       || "No recommendations logged yet. Analyze a stock, run discovery, or let the assistant make a call to start a track record.")}</p>`;
     $("#scoreCalib").innerHTML = $("#scoreSource").innerHTML = $("#scoreRows").innerHTML = "";
     return;
   }
 
-  const edge = h.benchmarked
-    ? `<div><label>Edge vs SPY</label><strong class="${cls(h.avg_alpha_pct)}">${pct(h.avg_alpha_pct)}</strong></div>`
-    : "";
-  const graded = `${h.count}<span class="sc-sub"> call${h.count === 1 ? "" : "s"}${h.benchmarked ? ` · ${h.benchmarked} vs SPY` : ""}</span>`;
-  $("#scoreRead").innerHTML = `
-    <div class="statline">
+  // Maturity caveat — loud when nothing's graded, softer when the sample is thin.
+  let caveat = "";
+  if (matured === 0) {
+    caveat = `<div class="sc-caveat warn">Too fresh to grade. The trusted record counts only calls held ≥ ${bar} days — all ${forming} are still forming (median age ${med}d). Everything below is provisional.</div>`;
+  } else if (matured < 5) {
+    caveat = `<div class="sc-caveat">Only ${matured} call${matured === 1 ? "" : "s"} past the ${bar}-day bar — early signal, not proof.${forming ? ` ${forming} still forming.` : ""}</div>`;
+  }
+
+  // Headline — show no win rate at all until something matures; don't dress up noise.
+  let statline;
+  if (matured === 0) {
+    statline = `<div class="statline">
+      <div><label>Graded</label><strong class="muted">None yet</strong></div>
+      <div><label>Forming</label><strong>${forming}<span class="sc-sub"> call${forming === 1 ? "" : "s"}</span></strong></div>
+      <div><label>Median age</label><strong>${med}d<span class="sc-sub"> · need ${bar}d</span></strong></div>
+      <div><label>Provisional return</label><strong class="${cls(f.avg_return_pct)} sc-prov">${pct(f.avg_return_pct)}</strong></div>
+      <div><label>Updated</label><strong class="sc-stamp">${stamp}</strong></div>
+    </div>`;
+  } else {
+    const edge = h.benchmarked
+      ? `<div><label>Edge vs SPY</label><strong class="${cls(h.avg_alpha_pct)}">${pct(h.avg_alpha_pct)}</strong></div>`
+      : "";
+    statline = `<div class="statline">
       <div><label>Win rate</label><strong class="${cls(h.win_rate - 50)}">${h.win_rate}%</strong></div>
       <div><label>Avg return</label><strong class="${cls(h.avg_return_pct)}">${pct(h.avg_return_pct)}</strong></div>
       ${edge}
-      <div><label>Graded</label><strong>${graded}</strong></div>
-      <div><label>Updated</label><strong class="sc-stamp">${new Date().toLocaleTimeString()}</strong></div>
-    </div>
-    <div class="sc-narrative">${narrative.map((n) => `<p>${esc(n)}</p>`).join("")}</div>`;
+      <div><label>Graded</label><strong>${matured}<span class="sc-sub"> of ${total}${forming ? ` · ${forming} forming` : ""}</span></strong></div>
+      <div><label>Median age</label><strong>${med}d</strong></div>
+      <div><label>Updated</label><strong class="sc-stamp">${stamp}</strong></div>
+    </div>`;
+  }
+  $("#scoreRead").innerHTML = caveat + statline
+    + `<div class="sc-narrative">${narrative.map((n) => `<p>${esc(n)}</p>`).join("")}</div>`;
 
+  // Calibration + attribution are computed over matured calls only — show a locked
+  // placeholder until calls clear the bar, rather than grading noise.
+  const lockRow = (msg) => `<tr class="sc-locked"><td colspan="5">${esc(msg)}</td></tr>`;
   $("#scoreCalib").innerHTML = (c.calibration || []).filter((r) => r.count)
-    .map((r) => scCut(CONV_LABEL[r.key] || r.key, r)).join("");
-  $("#scoreSource").innerHTML = (c.by_source || [])
-    .map((r) => scCut(titleCase(r.key), r)).join("");
+    .map((r) => scCut(CONV_LABEL[r.key] || r.key, r)).join("")
+    || lockRow(`Calibration unlocks once calls clear the ${bar}-day bar.`);
+  $("#scoreSource").innerHTML = (c.by_source || []).filter((r) => r.count)
+    .map((r) => scCut(titleCase(r.key), r)).join("")
+    || lockRow("By-engine edge unlocks once calls mature.");
 
+  // Every call — the full ledger with age; forming rows dimmed and tagged.
   $("#scoreRows").innerHTML = (c.trades || []).map((t) => `
-    <tr><td>${(t.entry_at || "").slice(0, 10)}</td>
-    <td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}</td>
-    <td><span class="sc-call">${t.decision_label || t.action}</span></td>
-    <td>${t.conviction}</td>
-    <td>$${(t.entry_price || 0).toFixed(2)}</td>
-    <td>$${(t.last_price || 0).toFixed(2)}</td>
-    <td class="${cls(t.return_pct)}">${pct(t.return_pct)}</td>
-    <td>${t.benchmarked ? `<span class="${cls(t.alpha_pct)}">${pct(t.alpha_pct)}</span>` : '<span class="muted">—</span>'}</td>
-    <td class="muted">${t.source}</td></tr>`).join("");
+    <tr class="${t.mature ? "" : "sc-forming"}">
+      <td>${(t.entry_at || "").slice(0, 10)}</td>
+      <td>${t.age_days}d${t.mature ? "" : ' <span class="sc-tag">forming</span>'}</td>
+      <td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}</td>
+      <td><span class="sc-call">${t.decision_label || t.action}</span></td>
+      <td>${t.conviction}</td>
+      <td>$${(t.entry_price || 0).toFixed(2)}</td>
+      <td>$${(t.last_price || 0).toFixed(2)}</td>
+      <td class="${cls(t.return_pct)}">${pct(t.return_pct)}</td>
+      <td>${t.benchmarked ? `<span class="${cls(t.alpha_pct)}">${pct(t.alpha_pct)}</span>` : '<span class="muted">—</span>'}</td>
+      <td class="muted">${t.source}</td>
+    </tr>`).join("");
 }
 $("#runScore").onclick = () => loadScore(true);
 
@@ -1078,10 +1115,17 @@ async function loadStructuralRisk() {
   const box = $("#riskBox");
   if (!box) return;
   box.classList.remove("hidden", "hot");
-  box.innerHTML = `<div class="risk-head"><div><h3>Structural risk</h3><p class="risk-sub">Shared drivers across your holdings</p></div></div>
-    <p class="risk-loading"><span class="spin"></span> Analyzing portfolio structure…</p>`;
+  box.innerHTML = `<div class="risk-board loading-board">
+    <div class="risk-head"><div><p class="risk-kicker">Risk map</p><h3>Portfolio structure</h3></div></div>
+    <p class="risk-loading"><span class="spin"></span> Analyzing portfolio structure...</p>
+  </div>`;
   let r;
-  try { r = await api("structural_risk"); } catch (e) { box.classList.add("hidden"); return; }
+  try {
+    r = await api("structural_risk");
+    if (r && !((r.clusters || []).length) && /unavailable/i.test(r.headline || "")) {
+      r = await api("structural_risk?refresh=true");
+    }
+  } catch (e) { box.classList.add("hidden"); return; }
   if (!r || !r.headline) { box.classList.add("hidden"); return; }
   renderStructuralRisk(r);
 }
@@ -1095,33 +1139,46 @@ function renderStructuralRisk(r) {
   const count = {};
   clusters.forEach((c) => (c.tickers || []).forEach((t) => { count[t] = (count[t] || 0) + 1; }));
   const dup = Object.keys(count).filter((t) => count[t] >= 2);
+  const hasClusters = clusters.length > 0;
+  const primary = clusters[0] || {};
+  const primaryPct = hasClusters ? Math.round(primary.weight_pct || 0) : null;
 
-  const factors = clusters.map((c, i) => {
+  const lenses = clusters.slice(0, 5).map((c, i) => {
     const lead = i === 0 && r.concentrated;
     const w = Math.max(2, Math.min(100, Math.round(c.weight_pct || 0)));
     const chips = (c.tickers || []).map((t) =>
       `<span class="rf-tk ${count[t] >= 2 ? "dup" : ""}">${esc(t)}</span>`).join(" ");
-    return `<div class="risk-factor ${lead ? "lead" : ""}">
-      <div class="rf-top"><span class="rf-label">${esc(c.label)}</span><span class="rf-pct">${Math.round(c.weight_pct || 0)}%</span></div>
-      <div class="rf-meter"><i style="width:${w}%"></i></div>
-      <div class="rf-tks">${chips}</div>
-      ${c.breaks_if ? `<div class="rf-breaks">${esc(c.breaks_if)}</div>` : ""}
+    return `<div class="risk-lens ${lead ? "lead" : ""}">
+      <div class="risk-lens-meta">
+        <div>
+          <div class="risk-lens-top"><span class="risk-lens-title">${esc(c.label)}</span><span class="risk-lens-pct">${Math.round(c.weight_pct || 0)}%</span></div>
+          <div class="risk-lens-bar"><i style="width:${w}%"></i></div>
+          <div class="rf-tks">${chips}</div>
+        </div>
+        ${c.breaks_if ? `<p class="risk-lens-breaks">${esc(c.breaks_if)}</p>` : ""}
+      </div>
     </div>`;
   }).join("");
 
   box.classList.remove("hidden");
   box.classList.toggle("hot", !!r.concentrated);
   const status = r.concentrated ? "Concentrated" : "Balanced";
+  const dupChips = dup.map((t) => `<span class="rf-tk dup">${esc(t)}</span>`).join(" ");
   box.innerHTML = `
-    <div class="risk-head"><div><h3>Structural risk</h3><p class="risk-sub">Shared drivers across your holdings</p></div>
-      <span class="risk-asof">${r.as_of ? new Date(r.as_of).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span></div>
-    <div class="risk-main ${r.concentrated ? "hot" : ""}">
-      <span class="risk-badge">${status}</span>
-      <p class="risk-headline ${r.concentrated ? "hot" : ""}">${esc(r.headline)}</p>
+    <div class="risk-board">
+      <div class="risk-head"><div><p class="risk-kicker">Risk map</p><h3>Portfolio structure</h3></div>
+        <span class="risk-asof">${r.as_of ? new Date(r.as_of).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span></div>
+      <div class="risk-summary ${hasClusters ? "" : "empty"}">
+        <span class="risk-state">${status}</span>
+        ${hasClusters ? `<strong>${primaryPct}%</strong>` : ""}
+        <p>${esc(r.headline)}</p>
+      </div>
+      ${lenses ? `<section class="risk-lenses">${lenses}</section>` : ""}
+      ${!lenses ? `<p class="risk-empty">No shared multi-name driver was detected from the current holdings.</p>` : ""}
+      ${dup.length ? `<div class="risk-overlap"><span>Doubled-up names</span><div>${dupChips}</div></div>` : ""}
+      ${r.note ? `<p class="risk-note">${esc(r.note)}</p>` : ""}
     </div>
-    ${factors ? `<div class="risk-factors">${factors}</div>` : ""}
-    ${dup.length ? `<p class="risk-overlap"><span class="ro-lbl">Doubled-up names</span> — in 2+ factors: ${dup.map(esc).join(" · ")}</p>` : ""}
-    ${r.note ? `<p class="risk-note">${esc(r.note)}</p>` : ""}`;
+  `;
 }
 
 // ---------- agentic chat (streaming) ----------
