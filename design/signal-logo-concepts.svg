@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1600" viewBox="0 0 1800 1600">
+  <defs>
+    <style>
+      .bg{fill:#f8f8f5}
+      .card{fill:#fffefa;stroke:#e5e1d8;stroke-width:1.3}
+      .soft{fill:#f1f0ea;stroke:#ded9ce;stroke-width:1}
+      .ink{fill:#171a17;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif}
+      .muted{fill:#747a75;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif}
+      .faint{fill:#9aa09a;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif}
+      .word{fill:#171a17;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif;font-size:46px;font-weight:720;letter-spacing:-0.02em}
+      .label{fill:#171a17;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif;font-size:22px;font-weight:720}
+      .small{fill:#747a75;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif;font-size:15px}
+      .tiny{fill:#9aa09a;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+      .line{stroke:#e5e1d8;stroke-width:1}
+      .inkStroke{stroke:#171a17;stroke-width:10;stroke-linecap:round;stroke-linejoin:round;fill:none}
+      .thinStroke{stroke:#171a17;stroke-width:7;stroke-linecap:round;stroke-linejoin:round;fill:none}
+      .blue{fill:#3f5fdb}.blueStroke{stroke:#3f5fdb}
+      .amber{fill:#a87318}.amberStroke{stroke:#a87318}
+      .green{fill:#1d8f4f}.greenStroke{stroke:#1d8f4f}
+      .shadow{filter:url(#shadow)}
+    </style>
+    <filter id="shadow" x="-12%" y="-12%" width="124%" height="136%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#111111" flood-opacity="0.055"/>
+    </filter>
+
+    <!-- Concept marks -->
+    <symbol id="fold-arrow" viewBox="0 0 96 96">
+      <path d="M20 74 L72 16 C75 13 81 15 80 20 L73 70 C72 76 66 78 62 74 L50 62 L27 78 C22 81 16 79 20 74 Z" fill="#171a17"/>
+      <path d="M50 62 L73 16 L62 74 Z" fill="#fffefa" opacity=".18"/>
+    </symbol>
+
+    <symbol id="path-mark" viewBox="0 0 96 96">
+      <path class="inkStroke" d="M18 66 C31 44 43 58 53 38 C61 23 73 25 82 17"/>
+      <path d="M69 16 L84 16 L84 31" class="inkStroke"/>
+      <circle cx="18" cy="66" r="7" fill="#171a17"/>
+      <circle cx="53" cy="38" r="7" fill="#fffefa" stroke="#171a17" stroke-width="6"/>
+    </symbol>
+
+    <symbol id="focus-mark" viewBox="0 0 96 96">
+      <rect x="15" y="15" width="66" height="66" rx="20" fill="none" stroke="#171a17" stroke-width="8"/>
+      <path d="M30 58 L48 32 L66 58 Z" fill="#171a17"/>
+      <path d="M43 58 L58 58 L48 32 Z" fill="#fffefa" opacity=".20"/>
+    </symbol>
+
+    <symbol id="axis-mark" viewBox="0 0 96 96">
+      <path d="M24 72 C34 38 52 22 76 18" class="thinStroke"/>
+      <path d="M23 18 C41 57 55 70 78 72" class="thinStroke"/>
+      <circle cx="48" cy="48" r="8" fill="#171a17"/>
+    </symbol>
+
+    <symbol id="signal-field" viewBox="0 0 96 96">
+      <path d="M24 66 C36 55 42 42 48 20" class="inkStroke"/>
+      <path d="M48 20 C54 42 60 55 72 66" class="inkStroke"/>
+      <path d="M32 72 C44 64 56 64 68 72" class="thinStroke"/>
+      <circle cx="48" cy="20" r="6" fill="#171a17"/>
+    </symbol>
+
+    <symbol id="ledger-mark" viewBox="0 0 96 96">
+      <path d="M24 18 H66 C72 18 76 22 76 28 V76 H30 C24 76 20 72 20 66 V24 C20 21 21 18 24 18 Z" fill="none" stroke="#171a17" stroke-width="8" stroke-linejoin="round"/>
+      <path d="M36 38 H62 M36 52 H58" stroke="#171a17" stroke-width="7" stroke-linecap="round"/>
+      <path d="M65 24 L75 14 L80 20 L70 30 Z" fill="#171a17"/>
+    </symbol>
+
+    <symbol id="s-cut" viewBox="0 0 96 96">
+      <path d="M70 18 H42 C27 18 20 27 20 38 C20 50 29 56 43 56 H55 C63 56 66 60 66 65 C66 70 62 74 54 74 H22" fill="none" stroke="#171a17" stroke-width="12" stroke-linecap="round"/>
+      <path d="M60 18 L78 18 L78 36" fill="none" stroke="#171a17" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <symbol id="north-mark" viewBox="0 0 96 96">
+      <path d="M48 14 L78 80 L49 66 L20 80 Z" fill="#171a17"/>
+      <path d="M48 14 L49 66 L35 72 Z" fill="#fffefa" opacity=".20"/>
+    </symbol>
+  </defs>
+
+  <rect class="bg" width="1800" height="1600"/>
+  <text x="70" y="76" class="ink" style="font-size:44px;font-weight:760;letter-spacing:-.02em">Signal logo concepts</text>
+  <text x="70" y="112" class="muted" style="font-size:17px">Brand direction: market intelligence that directs attention. Serious, quiet, not a trading-bot mascot.</text>
+
+  <!-- Row 1 -->
+  <rect x="70" y="160" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#fold-arrow" x="116" y="218" width="96" height="96"/>
+  <text x="240" y="278" class="word">Signal</text>
+  <text x="105" y="374" class="label">01 / Folded vector</text>
+  <text x="105" y="402" class="small">A folded arrow/paper form. Feels like attention being routed from noise to action.</text>
+
+  <rect x="650" y="160" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#path-mark" x="696" y="218" width="96" height="96"/>
+  <text x="820" y="278" class="word">Signal</text>
+  <text x="685" y="374" class="label">02 / Decision path</text>
+  <text x="685" y="402" class="small">A research path resolving into direction. Best match for agentic reasoning.</text>
+
+  <rect x="1230" y="160" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#focus-mark" x="1276" y="218" width="96" height="96"/>
+  <text x="1400" y="278" class="word">Signal</text>
+  <text x="1265" y="374" class="label">03 / Focus frame</text>
+  <text x="1265" y="402" class="small">A lens around the signal. More product-system than finance brand.</text>
+
+  <!-- Row 2 -->
+  <rect x="70" y="520" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#axis-mark" x="116" y="578" width="96" height="96"/>
+  <text x="240" y="638" class="word">Signal</text>
+  <text x="105" y="734" class="label">04 / Crossing axes</text>
+  <text x="105" y="762" class="small">Two independent reads crossing at conviction. Abstract, premium, less obvious.</text>
+
+  <rect x="650" y="520" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#signal-field" x="696" y="578" width="96" height="96"/>
+  <text x="820" y="638" class="word">Signal</text>
+  <text x="685" y="734" class="label">05 / Signal field</text>
+  <text x="685" y="762" class="small">A subtle signal emitter without using the generic Wi-Fi/radar cliché.</text>
+
+  <rect x="1230" y="520" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#ledger-mark" x="1276" y="578" width="96" height="96"/>
+  <text x="1400" y="638" class="word">Signal</text>
+  <text x="1265" y="734" class="label">06 / Research ledger</text>
+  <text x="1265" y="762" class="small">Trust, case files, and scorecard. Strong for the memory/evaluation angle.</text>
+
+  <!-- Row 3 -->
+  <rect x="70" y="880" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#s-cut" x="116" y="938" width="96" height="96"/>
+  <text x="240" y="998" class="word">Signal</text>
+  <text x="105" y="1094" class="label">07 / S path</text>
+  <text x="105" y="1122" class="small">A monogram that behaves like a chart path and arrow, without being a chart logo.</text>
+
+  <rect x="650" y="880" width="520" height="300" rx="26" class="card shadow"/>
+  <use href="#north-mark" x="696" y="938" width="96" height="96"/>
+  <text x="820" y="998" class="word">Signal</text>
+  <text x="685" y="1094" class="label">08 / North marker</text>
+  <text x="685" y="1122" class="small">A quiet navigation mark. Good if the product leans toward portfolio direction.</text>
+
+  <rect x="1230" y="880" width="520" height="300" rx="26" class="card shadow"/>
+  <rect x="1276" y="940" width="96" height="96" rx="24" fill="#171a17"/>
+  <path d="M1296 1008 L1348 960 C1351 957 1357 959 1356 964 L1350 1012 C1349 1018 1343 1020 1339 1016 L1328 1005 L1304 1020 C1298 1024 1292 1013 1296 1008 Z" fill="#fffefa"/>
+  <text x="1400" y="998" class="word">Signal</text>
+  <text x="1265" y="1094" class="label">09 / App icon lockup</text>
+  <text x="1265" y="1122" class="small">Folded vector translated into an app icon. Strongest for product launch.</text>
+
+  <!-- Color / application strip -->
+  <rect x="70" y="1260" width="820" height="260" rx="26" class="card"/>
+  <text x="105" y="1310" class="label">Recommended direction</text>
+  <text x="105" y="1340" class="small">Start with 01 Folded vector, then refine toward 02 if you want more agentic/research meaning.</text>
+  <use href="#fold-arrow" x="110" y="1382" width="72" height="72"/>
+  <text x="206" y="1432" class="word" style="font-size:38px">Signal</text>
+  <rect x="420" y="1384" width="146" height="46" rx="23" class="soft"/>
+  <text x="442" y="1413" class="small">read-only</text>
+  <rect x="592" y="1384" width="180" height="46" rx="23" fill="#eef2ff" stroke="#cdd7ff"/>
+  <text x="618" y="1413" class="small" fill="#3f5fdb">3 accounts</text>
+  <text x="105" y="1488" class="faint" style="font-size:13px">Use color as state, not as brand. The mark stays ink-first.</text>
+
+  <rect x="950" y="1260" width="700" height="260" rx="26" class="card"/>
+  <text x="985" y="1310" class="label">What to avoid</text>
+  <text x="985" y="1340" class="small">These make it feel generic or prototype-grade:</text>
+  <text x="985" y="1388" class="small">- green dot as identity</text>
+  <text x="985" y="1424" class="small">- literal brain icon</text>
+  <text x="985" y="1460" class="small">- candlestick logo</text>
+  <text x="985" y="1496" class="small">- crypto/robot/sparkle marks</text>
+  <circle cx="1320" cy="1406" r="30" fill="#25c75a"/>
+  <text x="1360" y="1414" class="muted" style="font-size:34px;font-weight:760;letter-spacing:.18em">BRAIN</text>
+  <line x1="1265" y1="1356" x2="1535" y2="1472" stroke="#d84d3f" stroke-width="8" stroke-linecap="round"/>
+  <line x1="1535" y1="1356" x2="1265" y2="1472" stroke="#d84d3f" stroke-width="8" stroke-linecap="round"/>
+</svg>

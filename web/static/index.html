@@ -3,13 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Brain · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=32" />
+<title>Signal · Research Engine</title>
+<link rel="stylesheet" href="/static/style.css?v=39" />
 </head>
 <body>
 <div id="app">
   <header>
-    <div class="brand"><span class="dot"></span><h1>BRAIN</h1><span class="tag" id="srcTag">—</span></div>
+    <div class="brand">
+      <svg class="signal-mark" viewBox="8 8 84 84" aria-hidden="true">
+        <path class="signal-body" d="M20 74 L72 16 C75 13 81 15 80 20 L73 70 C72 76 66 78 62 74 L50 62 L27 78 C22 81 16 79 20 74 Z"/>
+        <path class="signal-fold" d="M50 62 L73 16 L62 74 Z"/>
+      </svg>
+      <h1>Signal</h1>
+      <span class="tag" id="srcTag">—</span>
+    </div>
     <div class="headval">
       <div class="big" id="totVal">—</div>
       <div class="chg muted" id="totMeta">—</div>
@@ -242,6 +249,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=32"></script>
+<script src="/static/app.js?v=39"></script>
 </body>
 </html>

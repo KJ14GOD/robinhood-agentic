@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2200" viewBox="0 0 1600 2200">
+  <defs>
+    <style>
+      .bg{fill:#f8f8f5}
+      .surface{fill:#fffefa;stroke:#e5e1d8;stroke-width:1.2}
+      .soft{fill:#f3f2ed;stroke:#e5e1d8;stroke-width:1}
+      .ink{fill:#171a17;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif}
+      .muted{fill:#747a75;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif}
+      .faint{fill:#9aa09a;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",Arial,sans-serif}
+      .mono{fill:#30352f;font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
+      .accent{fill:#3f5fdb}
+      .green{fill:#15a34a}
+      .red{fill:#d84d3f}
+      .amber{fill:#9a6a16}
+      .blueStroke{stroke:#3f5fdb}
+      .greenStroke{stroke:#15a34a}
+      .redStroke{stroke:#d84d3f}
+      .line{stroke:#e5e1d8;stroke-width:1.2}
+      .thin{stroke:#d9d5cb;stroke-width:1;fill:none}
+      .chart{fill:none;stroke:#15a34a;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+      .chartRed{fill:none;stroke:#d84d3f;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+      .label{font-size:22px;font-weight:700}
+      .h1{font-size:38px;font-weight:760}
+      .h2{font-size:25px;font-weight:740}
+      .small{font-size:15px}
+      .tiny{font-size:12px}
+      .tab{font-size:16px;font-weight:650}
+      .chip{fill:#f1f0eb;stroke:#ded9ce;stroke-width:1}
+      .chipBlue{fill:#eef2ff;stroke:#cdd7ff}
+      .chipAmber{fill:#fff7e8;stroke:#edd4a1}
+      .chipRed{fill:#fff0ee;stroke:#efc3bc}
+      .shadow{filter:url(#shadow)}
+    </style>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#111111" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" width="1600" height="2200"/>
+
+  <text x="70" y="70" class="ink h1">Production UI Vision</text>
+  <text x="70" y="105" class="muted small">A calmer portfolio intelligence OS: no green status-dot branding, fewer dashboard boxes, more authored product surfaces.</text>
+  <text x="70" y="130" class="faint tiny">This is a direction board, not a code migration plan.</text>
+
+  <!-- North-star shell -->
+  <rect x="70" y="165" width="1460" height="500" rx="26" class="surface shadow"/>
+  <rect x="110" y="205" width="34" height="34" rx="9" fill="#171a17"/>
+  <path d="M120 228 L133 212 L135 224 L128 224 Z" fill="#fffefa"/>
+  <text x="158" y="229" class="ink label">Signal</text>
+  <rect x="255" y="202" width="156" height="34" rx="17" class="chip"/>
+  <text x="276" y="224" class="muted tiny">Robinhood read-only</text>
+  <text x="506" y="224" class="muted tab">Today</text>
+  <text x="588" y="224" class="muted tab">Activity</text>
+  <text x="692" y="224" class="ink tab">Portfolio</text>
+  <text x="798" y="224" class="muted tab">Memory</text>
+  <text x="900" y="224" class="muted tab">Scorecard</text>
+  <rect x="1165" y="199" width="290" height="42" rx="21" class="soft"/>
+  <text x="1188" y="226" class="faint small">Ask, research, or jump to ticker</text>
+
+  <text x="110" y="300" class="muted small">Individual portfolio</text>
+  <text x="110" y="350" class="ink h1">$2,109.66</text>
+  <text x="110" y="381" class="green small">+$8.62 today</text>
+  <line x1="110" y1="520" x2="940" y2="520" class="thin" stroke-dasharray="2 10"/>
+  <path class="chart" d="M110 540 C160 500 175 450 225 480 C260 505 285 492 315 470 C355 438 386 467 420 455 C462 438 472 350 505 385 C530 421 560 408 589 390 C642 356 662 445 700 430 C742 413 765 420 802 395 C850 362 895 392 940 372"/>
+  <text x="110" y="610" class="ink tab">1D</text>
+  <text x="160" y="610" class="muted tab">1W</text>
+  <text x="215" y="610" class="muted tab">1M</text>
+  <text x="272" y="610" class="muted tab">3M</text>
+  <text x="330" y="610" class="muted tab">1Y</text>
+
+  <rect x="1010" y="270" width="410" height="390" rx="18" class="surface"/>
+  <text x="1040" y="315" class="ink h2">Stocks</text>
+  <line x1="1010" y1="340" x2="1420" y2="340" class="line"/>
+  <text x="1040" y="382" class="ink tab">APLD</text><text x="1040" y="410" class="muted small">8.16 shares</text><path class="chart" d="M1205 395 L1220 390 L1235 392 L1246 377 L1268 389 L1285 385"/><text x="1360" y="383" class="ink small">$392</text><text x="1362" y="410" class="green small">+0.1%</text>
+  <text x="1040" y="462" class="ink tab">SOFI</text><text x="1040" y="490" class="muted small">6.52 shares</text><path class="chartRed" d="M1205 472 L1220 475 L1235 482 L1249 488 L1272 497 L1286 506"/><text x="1360" y="463" class="ink small">$115</text><text x="1362" y="490" class="red small">-4.5%</text>
+  <text x="1040" y="542" class="ink tab">QQQ</text><text x="1040" y="570" class="muted small">0.76 shares</text><path class="chart" d="M1205 558 L1228 553 L1240 545 L1260 534 L1286 526"/><text x="1360" y="543" class="ink small">$566</text><text x="1362" y="570" class="green small">+0.5%</text>
+  <line x1="1040" y1="600" x2="1390" y2="600" class="line"/>
+  <text x="1040" y="630" class="muted small">Lists</text><text x="1375" y="630" class="muted h2">+</text>
+
+  <!-- Brain / Today -->
+  <rect x="70" y="735" width="700" height="405" rx="24" class="surface"/>
+  <text x="110" y="785" class="ink h2">Brain becomes Today</text>
+  <text x="110" y="815" class="muted small">The first screen is what changed, what matters, and what the assistant is watching.</text>
+  <rect x="110" y="850" width="620" height="82" rx="18" class="soft"/>
+  <text x="134" y="882" class="ink tab">No immediate trade</text>
+  <text x="134" y="910" class="muted small">Portfolio is concentrated, but no thesis broke since last check.</text>
+  <rect x="110" y="954" width="290" height="120" rx="18" class="surface"/>
+  <text x="132" y="986" class="amber small">Risk watch</text>
+  <text x="132" y="1022" class="ink h2">62%</text>
+  <text x="202" y="1021" class="muted small">in one macro-style bet</text>
+  <rect x="430" y="954" width="300" height="120" rx="18" class="surface"/>
+  <text x="452" y="986" class="accent small">Research queue</text>
+  <text x="452" y="1022" class="ink h2">3</text>
+  <text x="493" y="1021" class="muted small">items need follow-up</text>
+  <rect x="110" y="1090" width="620" height="46" rx="23" class="soft"/>
+  <text x="136" y="1120" class="faint small">Ask: Should I trim RKLB or wait for Neutron catalysts?</text>
+
+  <!-- Activity -->
+  <rect x="810" y="735" width="700" height="405" rx="24" class="surface"/>
+  <text x="850" y="785" class="ink h2">Activity becomes an audit trail</text>
+  <text x="850" y="815" class="muted small">Raw signals, LLM judgments, and sources live in one chronological stream.</text>
+  <line x1="892" y1="855" x2="892" y2="1088" class="thin"/>
+  <circle cx="892" cy="878" r="8" fill="#f0b429"/><text x="918" y="883" class="mono small">11:42</text><text x="980" y="883" class="ink tab">RKLB concentration trigger</text>
+  <text x="980" y="910" class="muted small">Source: monitor - deterministic - persisted event</text>
+  <circle cx="892" cy="970" r="8" fill="#3f5fdb"/><text x="918" y="975" class="mono small">11:36</text><text x="980" y="975" class="ink tab">Thesis re-judged active</text>
+  <text x="980" y="1002" class="muted small">Source: memory engine - citations attached</text>
+  <circle cx="892" cy="1062" r="8" fill="#d84d3f"/><text x="918" y="1067" class="mono small">10:08</text><text x="980" y="1067" class="ink tab">Invalidation risk detected</text>
+  <text x="980" y="1094" class="muted small">Source: filings/news detector - requires review</text>
+
+  <!-- Portfolio -->
+  <rect x="70" y="1185" width="700" height="405" rx="24" class="surface"/>
+  <text x="110" y="1235" class="ink h2">Portfolio keeps the Robinhood split</text>
+  <text x="110" y="1265" class="muted small">Large left chart, right stocks rail, structural risk as a small factor map below.</text>
+  <rect x="110" y="1300" width="430" height="150" rx="16" class="soft"/>
+  <text x="132" y="1335" class="muted small">Portfolio</text>
+  <text x="132" y="1375" class="ink h2">$2,109.66</text>
+  <path class="chart" d="M132 1425 C170 1390 202 1402 225 1380 C250 1358 270 1400 300 1378 C330 1350 358 1370 390 1342 C420 1315 455 1340 510 1322"/>
+  <rect x="560" y="1300" width="190" height="150" rx="16" class="surface"/>
+  <text x="585" y="1338" class="ink tab">Stocks</text>
+  <text x="585" y="1374" class="muted small">QQQ $566</text>
+  <text x="585" y="1404" class="muted small">RKLB $553</text>
+  <text x="585" y="1434" class="muted small">APLD $392</text>
+  <rect x="110" y="1472" width="620" height="74" rx="16" class="surface"/>
+  <text x="132" y="1503" class="amber small">Factor exposure</text>
+  <text x="132" y="1528" class="ink tab">Long-duration growth - 62%</text>
+  <line x1="360" y1="1521" x2="700" y2="1521" stroke="#e5e1d8" stroke-width="8" stroke-linecap="round"/>
+  <line x1="360" y1="1521" x2="575" y2="1521" stroke="#262d27" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Memory -->
+  <rect x="810" y="1185" width="700" height="405" rx="24" class="surface"/>
+  <text x="850" y="1235" class="ink h2">Memory becomes case files</text>
+  <text x="850" y="1265" class="muted small">Latest thesis, watch reason, invalidation rules, and evidence timeline are separated.</text>
+  <rect x="850" y="1305" width="150" height="260" rx="16" class="soft"/>
+  <text x="872" y="1340" class="ink tab">RKLB</text><text x="872" y="1380" class="muted tab">APLD</text><text x="872" y="1420" class="muted tab">SOFI</text><text x="872" y="1460" class="muted tab">IREN</text>
+  <rect x="1030" y="1305" width="460" height="260" rx="16" class="surface"/>
+  <text x="1055" y="1344" class="ink h2">RKLB case file</text>
+  <rect x="1055" y="1360" width="98" height="28" rx="14" class="chipAmber"/><text x="1077" y="1379" class="amber tiny">REVIEW</text>
+  <text x="1055" y="1425" class="muted small">Thesis: Neutron execution plus defense launch demand can support the story.</text>
+  <text x="1055" y="1462" class="muted small">Breaks if: Neutron slips again or funding/multiple compression hits space names.</text>
+  <text x="1055" y="1515" class="accent small">Evidence ledger: + backlog, - valuation stretch, - launch timing risk</text>
+
+  <!-- Shadow / Scorecard -->
+  <rect x="70" y="1635" width="700" height="405" rx="24" class="surface"/>
+  <text x="110" y="1685" class="ink h2">Shadow becomes Scorecard</text>
+  <text x="110" y="1715" class="muted small">A benchmark view, not a ledger dump: calibration, alpha, drawdown, and source quality.</text>
+  <rect x="110" y="1750" width="180" height="94" rx="16" class="soft"/>
+  <text x="132" y="1783" class="muted small">Hit rate</text><text x="132" y="1825" class="ink h2">54%</text>
+  <rect x="315" y="1750" width="180" height="94" rx="16" class="soft"/>
+  <text x="337" y="1783" class="muted small">Avg alpha</text><text x="337" y="1825" class="green h2">+2.1%</text>
+  <rect x="520" y="1750" width="210" height="94" rx="16" class="soft"/>
+  <text x="542" y="1783" class="muted small">Worst drawdown</text><text x="542" y="1825" class="red h2">-8.4%</text>
+  <rect x="110" y="1872" width="620" height="110" rx="16" class="surface"/>
+  <text x="132" y="1910" class="ink tab">Conviction calibration</text>
+  <line x1="132" y1="1955" x2="705" y2="1955" class="thin"/>
+  <circle cx="250" cy="1940" r="10" fill="#3f5fdb"/><circle cx="420" cy="1930" r="10" fill="#15a34a"/><circle cx="585" cy="1965" r="10" fill="#d84d3f"/>
+
+  <!-- Profile / Settings -->
+  <rect x="810" y="1635" width="700" height="405" rx="24" class="surface"/>
+  <text x="850" y="1685" class="ink h2">Profile becomes Settings and Guardrails</text>
+  <text x="850" y="1715" class="muted small">Production needs explicit data sources, risk rules, notification cadence, and approvals.</text>
+  <rect x="850" y="1750" width="300" height="250" rx="16" class="surface"/>
+  <text x="874" y="1790" class="ink tab">Investor rules</text>
+  <text x="874" y="1832" class="muted small">Max single name: 15%</text>
+  <text x="874" y="1870" class="muted small">Max volatile idea: 3%</text>
+  <text x="874" y="1908" class="muted small">Earnings: no auto buys</text>
+  <text x="874" y="1946" class="muted small">Execution: manual only</text>
+  <rect x="1180" y="1750" width="310" height="250" rx="16" class="soft"/>
+  <text x="1204" y="1790" class="ink tab">Data connections</text>
+  <rect x="1204" y="1815" width="240" height="34" rx="17" class="chipBlue"/><text x="1225" y="1838" class="accent tiny">Robinhood connected</text>
+  <rect x="1204" y="1862" width="240" height="34" rx="17" class="chip"/><text x="1225" y="1885" class="muted tiny">SEC EDGAR enabled</text>
+  <rect x="1204" y="1909" width="240" height="34" rx="17" class="chip"/><text x="1225" y="1932" class="muted tiny">News provider pending</text>
+  <rect x="1204" y="1956" width="240" height="34" rx="17" class="chipAmber"/><text x="1225" y="1979" class="amber tiny">LLM cost guardrails</text>
+
+  <line x1="70" y1="2090" x2="1530" y2="2090" class="line"/>
+  <text x="70" y="2130" class="ink h2">Migration idea</text>
+  <text x="70" y="2160" class="muted small">Keep the current Python brain and DB. Move the UI to a typed frontend later: React or Next.js, component system, app shell, router, chart library, and design tokens.</text>
+</svg>
