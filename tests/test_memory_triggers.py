@@ -15,7 +15,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TMP.name}"
 
 from brain.data.news import Headline  # noqa: E402
 from brain.engines import memory  # noqa: E402
-from brain.models import Thesis  # noqa: E402
+from brain.models import Holding, Thesis, ThesisVerdict  # noqa: E402
 
 
 def _thesis():
@@ -62,6 +62,40 @@ class TriggerTests(unittest.TestCase):
         fresh = Thesis(ticker="X", updated_at=(datetime.now(timezone.utc) - timedelta(days=2)).isoformat())
         self.assertIsNotNone(memory._stale_trigger(old))
         self.assertIsNone(memory._stale_trigger(fresh))
+
+
+class JudgeGroundingTests(unittest.TestCase):
+    """The re-judgement now grounds on a live web pass, with the RSS headlines as a
+    fallback. Both LLM calls are stubbed so this stays offline + deterministic."""
+
+    def setUp(self):
+        self._web_calls = 0
+
+        def fake_web(task, **kw):
+            self._web_calls += 1
+            return "Live, cited brief on what triggered the review."
+
+        memory.llm.web_research = fake_web
+        memory.llm.parse = lambda prompt, schema, **kw: ThesisVerdict(
+            status="review", decision_label="EXIT REVIEW", reason="cited evidence")
+        # If the fallback path runs, keep it offline too.
+        memory.headlines_as_prompt = lambda ticker, limit=5: "RECENT HEADLINES: none"
+
+    def _holding(self):
+        return Holding(ticker="APLD", quantity=10, avg_cost=10.0, current_price=12.0)
+
+    def test_judge_reads_live_web_then_returns_verdict(self):
+        v = memory._judge(_thesis(), self._holding(), None, "news: dilution risk")
+        self.assertGreaterEqual(self._web_calls, 1)  # the decision now reads the live web
+        self.assertEqual(v.status, "review")
+
+    def test_judge_falls_back_to_headlines_when_search_fails(self):
+        def boom(task, **kw):
+            raise RuntimeError("search down")
+        memory.llm.web_research = boom
+        v = memory._judge(_thesis(), self._holding(), None, "news: dilution risk")
+        self.assertIsNotNone(v)  # a search hiccup degrades to RSS, never skips the judgement
+        self.assertEqual(v.status, "review")
 
 
 if __name__ == "__main__":

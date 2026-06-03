@@ -106,11 +106,30 @@ def _stale_trigger(thesis) -> str | None:
     return None
 
 
+def _revisit_task(thesis, trigger: str) -> str:
+    return f"""Re-underwrite the stored investment thesis on {thesis.ticker} using current information from the live web.
+
+STORED THESIS: {thesis.thesis or 'n/a'}
+WHAT WOULD INVALIDATE IT: {thesis.invalidation or 'not specified'}
+WHAT JUST TRIGGERED THIS REVIEW: {trigger}
+
+Gather what's actually happening now that bears on whether the invalidation condition is materializing or the thesis still holds — the substance of recent news (not just headlines), earnings/guidance, analyst reactions, and primary filings. Report the concrete, cited evidence; don't render a verdict, just surface what matters."""
+
+
 def _judge(thesis, holding: Holding, sig: TrendSignals | None, trigger: str) -> ThesisVerdict | None:
     """The one gated LLM call: is the thesis still intact, or did its invalidation
-    condition actually trigger?"""
-    news = headlines_as_prompt(thesis.ticker, limit=5)
+    condition actually trigger? Two-step — a focused live web pass reads the
+    *substance* of what tripped the review (news bodies, guidance, analyst takes,
+    filings), then the structured verdict. Best-effort search: on failure it
+    degrades to today's RSS headlines so the judgement still runs, never skipped."""
     upnl = holding.unrealized_pct
+    pos = f"unrealized {upnl:+.0f}% from cost." if upnl is not None else "cost basis unknown."
+    try:
+        brief = llm.web_research(_revisit_task(thesis, trigger), max_searches=4)
+    except Exception:  # noqa: BLE001 — degrade to headlines rather than skip the call
+        brief = ""
+    grounding = (f"LIVE WEB RESEARCH (current, cited):\n{brief.strip()}"
+                 if brief.strip() else headlines_as_prompt(thesis.ticker, limit=5))
     prompt = f"""Re-judge this stored investment thesis against what just changed. Be conservative.
 
 TICKER: {thesis.ticker}
@@ -120,9 +139,9 @@ STRENGTHENS IT: {', '.join(thesis.strengthens) or 'n/a'}
 WEAKENS IT: {', '.join(thesis.weakens) or 'n/a'}
 
 WHAT TRIGGERED THIS REVIEW: {trigger}
-POSITION: unrealized {upnl:+.0f}% from cost.{'' if upnl is not None else ' (cost basis unknown)'}
+POSITION: {pos}
 CURRENT SIGNALS: {sig.as_prompt() if sig else 'n/a'}
-{news}
+{grounding}
 
 Has the invalidation condition ACTUALLY been met, or is this normal volatility?
 - status 'broken' ONLY if the evidence clearly matches the stated invalidation.
