@@ -17,6 +17,11 @@ def analyze(ticker: str, profile: RiskProfile, log_shadow: bool = True) -> Trade
     signals = get_signals(ticker)
     news = headlines_as_prompt(ticker)
     social = sentiment.sentiment_prompt(ticker)
+    social_guidance = ("""
+When the social read is relevant, work it into your reasoning explicitly (one clause is
+enough) — e.g. lopsided bullishness after a big run is a crowded long / contrarian caution,
+a mention spike flags a catalyst or a pump to check. Treat it as crowd positioning, never as
+fact, and only mention it when it actually bears on the call. Don't force it.""" if social else "")
 
     prompt = f"""Produce a recommendation for {ticker} for this investor.
 
@@ -28,6 +33,7 @@ QUANTITATIVE SIGNALS (grounded — reason from these, don't invent):
 
 {news}
 {social}
+{social_guidance}
 
 Decide the right action (buy / add / hold / trim / sell / watch) for THIS investor given
 their risk profile. Give a falsifiable thesis, the concrete catalyst and rough timing,
