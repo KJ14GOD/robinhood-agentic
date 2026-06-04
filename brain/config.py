@@ -39,6 +39,13 @@ RH_USERNAME = os.environ.get("RH_USERNAME", "")
 RH_PASSWORD = os.environ.get("RH_PASSWORD", "")
 RH_MFA = os.environ.get("RH_MFA", "")
 
+# --- Social sentiment (free, no-auth: StockTwits mood + ApeWisdom/Reddit buzz) ---
+# Secondary, contextual signal. Set SENTIMENT_ENABLED=false to turn it off.
+SENTIMENT_ENABLED = os.environ.get("SENTIMENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+SENTIMENT_TTL_SECONDS = int(os.environ.get("SENTIMENT_TTL_SECONDS", "1800"))  # 30 min cache + ingest gate
+SENTIMENT_BUZZ_PCT = int(os.environ.get("SENTIMENT_BUZZ_PCT", "50"))   # mention spike % that pings
+SENTIMENT_BUZZ_MIN = int(os.environ.get("SENTIMENT_BUZZ_MIN", "25"))   # min absolute mentions to count
+
 # --- Persistence paths ---
 PROFILE_PATH = DATA_DIR / "profile.json"
 SHADOW_PATH = DATA_DIR / "shadow_ledger.jsonl"

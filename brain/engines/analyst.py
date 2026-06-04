@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from ..data.news import headlines_as_prompt
 from ..data.prices import get_signals
+from ..data import sentiment
 from ..models import RiskProfile, TradeTicket
 from .. import llm, research_state, shadow
 
@@ -15,6 +16,7 @@ def analyze(ticker: str, profile: RiskProfile, log_shadow: bool = True) -> Trade
     ticker = ticker.upper().strip()
     signals = get_signals(ticker)
     news = headlines_as_prompt(ticker)
+    social = sentiment.sentiment_prompt(ticker)
 
     prompt = f"""Produce a recommendation for {ticker} for this investor.
 
@@ -25,6 +27,7 @@ QUANTITATIVE SIGNALS (grounded — reason from these, don't invent):
 {signals.as_prompt()}
 
 {news}
+{social}
 
 Decide the right action (buy / add / hold / trim / sell / watch) for THIS investor given
 their risk profile. Give a falsifiable thesis, the concrete catalyst and rough timing,

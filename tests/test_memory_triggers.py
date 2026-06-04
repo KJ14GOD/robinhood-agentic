@@ -80,6 +80,7 @@ class JudgeGroundingTests(unittest.TestCase):
             status="review", decision_label="EXIT REVIEW", reason="cited evidence")
         # If the fallback path runs, keep it offline too.
         memory.headlines_as_prompt = lambda ticker, limit=5: "RECENT HEADLINES: none"
+        memory.sentiment.sentiment_prompt = lambda ticker: ""  # no network in tests
 
     def _holding(self):
         return Holding(ticker="APLD", quantity=10, avg_cost=10.0, current_price=12.0)

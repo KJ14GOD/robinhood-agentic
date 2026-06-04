@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 
 from ..data.news import get_news, headlines_as_prompt
+from ..data import sentiment
 from ..data.prices import TrendSignals, get_earnings_date, get_signals_many
 from ..models import Holding, Portfolio, RiskProfile, ThesisVerdict, _now
 from .. import llm, research_state
@@ -130,6 +131,7 @@ def _judge(thesis, holding: Holding, sig: TrendSignals | None, trigger: str) -> 
         brief = ""
     grounding = (f"LIVE WEB RESEARCH (current, cited):\n{brief.strip()}"
                  if brief.strip() else headlines_as_prompt(thesis.ticker, limit=5))
+    social = sentiment.sentiment_prompt(thesis.ticker)  # secondary crowd context, if any
     prompt = f"""Re-judge this stored investment thesis against what just changed. Be conservative.
 
 TICKER: {thesis.ticker}
@@ -142,6 +144,7 @@ WHAT TRIGGERED THIS REVIEW: {trigger}
 POSITION: {pos}
 CURRENT SIGNALS: {sig.as_prompt() if sig else 'n/a'}
 {grounding}
+{social}
 
 Has the invalidation condition ACTUALLY been met, or is this normal volatility?
 - status 'broken' ONLY if the evidence clearly matches the stated invalidation.

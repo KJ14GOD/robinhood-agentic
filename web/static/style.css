@@ -21,10 +21,10 @@ button,input,select,textarea{font-family:inherit}
 header{display:flex;justify-content:space-between;align-items:flex-start;padding:26px 0 8px}
 .brand{display:flex;align-items:center;gap:10px}
 .signal-mark{width:39px;height:39px;display:block;flex:none;overflow:visible;
-  transform-origin:54% 55%;animation:signalMarkIntro 1.45s cubic-bezier(.22,1,.36,1) both}
+  transform-origin:50% 55%;backface-visibility:hidden;will-change:transform,opacity;
+  animation:signalIn 1.05s cubic-bezier(.22,.68,.28,1) both}
 .signal-mark .signal-body{fill:var(--txt)}
-.signal-mark .signal-fold{fill:var(--surface);opacity:.18;transform-origin:58% 58%;
-  animation:signalFoldIntro 1.45s cubic-bezier(.22,1,.36,1) both}
+.signal-mark .signal-fold{fill:var(--surface);opacity:.18}
 .brand h1{font-size:20px;font-weight:750;letter-spacing:-.025em;margin:0}
 .brand .tag{font-size:11px;color:var(--faint);border:1px solid var(--line);border-radius:20px;padding:3px 10px;font-family:var(--mono);margin-left:4px}
 .headval{text-align:right}
@@ -33,21 +33,15 @@ header{display:flex;justify-content:space-between;align-items:flex-start;padding
 .headval .mini{margin-top:8px;padding:6px 12px;font-size:12px}
 .ghost.mini{padding:5px 10px;font-size:11px}
 
-@keyframes signalMarkIntro{
-  0%{opacity:0;transform:translate3d(-22px,7px,0) rotate(-8deg) scale(.94)}
-  26%{opacity:1;transform:translate3d(-7px,2px,0) rotate(-3deg) scale(.985)}
-  52%{transform:translate3d(5px,-7px,0) rotate(2.8deg) scale(1.02)}
-  78%{transform:translate3d(2px,1.5px,0) rotate(-.8deg) scale(.998)}
-  100%{opacity:1;transform:translate3d(0,0,0) rotate(0deg) scale(1)}
-}
-@keyframes signalFoldIntro{
-  0%{opacity:0;transform:translate3d(-5px,2px,0)}
-  52%{opacity:.29;transform:translate3d(1.7px,-1.8px,0)}
-  78%{opacity:.21;transform:translate3d(.4px,.5px,0)}
-  100%{opacity:.18;transform:translate3d(0,0,0)}
+/* one-time intro: flies in flat from the left, lifts up while growing, settles to rest */
+@keyframes signalIn{
+  0%   {opacity:0;transform:translate3d(-24px,7px,0) rotate(44deg) scale(.74)}
+  38%  {opacity:1;transform:translate3d(-3px,6px,0) rotate(27deg) scale(.86)}
+  70%  {transform:translate3d(6px,-11px,0) rotate(4deg) scale(1.06)}
+  100% {opacity:1;transform:translate3d(0,0,0) rotate(0deg) scale(1)}
 }
 @media (prefers-reduced-motion:reduce){
-  .signal-mark,.signal-mark .signal-fold{animation:none}
+  .signal-mark{animation:none}
 }
 
 /* nav */

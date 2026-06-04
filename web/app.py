@@ -319,6 +319,12 @@ async def _refresh_loop() -> None:
             await asyncio.to_thread(brain.run_monitors)  # cheap, no-LLM event scan
         except Exception as e:  # noqa: BLE001
             logger.warning("monitor scan failed: %s", e)
+        # Social sentiment: ping when a name's Reddit chatter spikes. One cheap call,
+        # gated + fully quarantined (no-op when disabled), so it can't disturb the rest.
+        try:
+            await asyncio.to_thread(brain.ingest_sentiment)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("sentiment ingest failed: %s", e)
         # Living memory: re-judge triggered theses. Gated, so usually a no-op; its
         # own guard so an LLM hiccup can't disturb price refresh or the monitor.
         try:

@@ -250,6 +250,69 @@ def run_structural_risk():
     return result
 
 
+# ---------- social sentiment (quarantined, secondary signal) ----------
+_SENT_CACHE: dict = {"at": 0.0}
+
+
+def _social_universe() -> set[str]:
+    """The names worth listening for: everything held, watched, or tracked in a mission."""
+    uni: set[str] = set()
+    try:
+        uni.update(h.ticker.upper() for h in get_portfolio().holdings)
+    except Exception:
+        pass
+    try:
+        state = research_state.load_state()
+        uni.update(w.ticker.upper() for w in state.watchlist)
+        uni.update(t.upper() for t in state.theses.keys())
+    except Exception:
+        pass
+    try:
+        for m in list_missions(status="active"):
+            uni.update(c.ticker.upper() for c in m.candidates)
+    except Exception:
+        pass
+    return {t for t in uni if t}
+
+
+def ingest_sentiment() -> int:
+    """Check social buzz on the user's names and ping when a name's Reddit mentions
+    spike. One cheap ApeWisdom call (cached), gated to SENTIMENT_TTL_SECONDS, fully
+    quarantined. Per-ticker StockTwits mood is fetched on demand by the analysis
+    prompt, not here. Returns the number of buzz events fired."""
+    from .data import sentiment
+    if not sentiment.available():
+        return 0
+    now = time.time()
+    if now - _SENT_CACHE["at"] < config.SENTIMENT_TTL_SECONDS:
+        return 0
+    _SENT_CACHE["at"] = now
+    universe = _social_universe()
+    if not universe:
+        return 0
+    trending = sentiment.apewisdom_map()
+    fired = 0
+    for tk in universe:
+        x = trending.get(tk)
+        if not x:
+            continue
+        mentions = int(x.get("mentions", 0) or 0)
+        prev = int(x.get("mentions_24h_ago", 0) or 0)
+        if not prev:
+            continue
+        delta = round((mentions - prev) / prev * 100)
+        if delta >= config.SENTIMENT_BUZZ_PCT and mentions >= config.SENTIMENT_BUZZ_MIN:
+            if not db_repo.event_exists_recent("social_buzz", tk, 12.0):
+                db_repo.save_research_event(
+                    event_type="social_buzz", ticker=tk, severity="info",
+                    title=f"{tk} buzzing on Reddit — mentions {delta:+d}%",
+                    summary=f"{mentions} mentions today vs {prev} yesterday — social chatter "
+                            "spiking. A lead to look at, not a signal on its own.",
+                    source="sentiment")
+                fired += 1
+    return fired
+
+
 def run_monitors() -> list[dict]:
     """Cheap deterministic event scan over the live portfolio. Persists new,
     deduped events to the DB. Called by the background loop — no LLM, no tokens."""
