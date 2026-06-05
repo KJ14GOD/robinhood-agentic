@@ -341,6 +341,11 @@ def scoreboard(refresh: bool = False) -> dict:
     return shadow.scoreboard(refresh=refresh)
 
 
+def reconcile_duplicate(trade_id: str, mode: str) -> dict:
+    """Resolve a duplicate shadow re-call ('replace' the older or 'keep' both)."""
+    return shadow.reconcile_duplicate(trade_id, mode)
+
+
 def scorecard(refresh: bool = False) -> dict:
     """The evaluation layer: graded recommendations — calibration, attribution,
     and benchmark-relative scoring. This is what proves whether the brain has edge."""

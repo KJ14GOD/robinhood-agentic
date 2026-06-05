@@ -1,5 +1,6 @@
 # secrets & local data
 .env
+.env.example
 data_store/
 *.session
 .tokens/

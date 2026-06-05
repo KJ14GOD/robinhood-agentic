@@ -1174,7 +1174,7 @@ async function loadScore(refresh = false) {
     <tr class="${t.mature ? "" : "sc-forming"}${t.duplicate ? " sc-dup" : ""}">
       <td>${(t.entry_at || "").slice(0, 10)}</td>
       <td>${t.age_days}d${t.mature ? "" : ' <span class="sc-tag">forming</span>'}</td>
-      <td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}${t.duplicate ? ' <span class="sc-tag dup" title="A later re-call of a name already tracked — kept for reference">repeat</span>' : ""}</td>
+      <td class="tk"><span onclick="analyze('${t.ticker}')">${t.ticker}</span>${t.duplicate ? ` <span class="sc-tag dup" title="A later re-call of a name already tracked — kept for reference">repeat</span> <button class="sc-replace" title="Close the older call(s) for this name; keep this one" onclick="reconcileDup('${t.id}','${t.ticker}')">replace older</button>` : ""}</td>
       <td><span class="sc-call">${t.decision_label || t.action}</span></td>
       <td>${t.conviction}</td>
       <td>$${(t.entry_price || 0).toFixed(2)}</td>
@@ -1184,6 +1184,15 @@ async function loadScore(refresh = false) {
       <td class="muted">${t.source}</td>
     </tr>`).join("");
 }
+async function reconcileDup(tradeId, ticker) {
+  if (!confirm(`Replace the older ${ticker} call(s) with this one? The older paper trade closes; this re-call becomes the live one.`)) return;
+  try {
+    const r = await api("shadow/reconcile", { trade_id: tradeId, mode: "replace" });
+    toast(r && r.ok ? `${ticker}: closed ${r.closed} older call${r.closed === 1 ? "" : "s"}` : "Could not reconcile");
+  } catch (e) { toast("Could not reconcile"); }
+  loadScore(true);
+}
+window.reconcileDup = reconcileDup;
 $("#runScore").onclick = () => loadScore(true);
 
 // ---------- structural risk (portfolio tab) ----------

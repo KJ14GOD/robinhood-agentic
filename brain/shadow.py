@@ -101,6 +101,10 @@ def log_recommendation(
     Duplicates are kept on purpose (a re-call at a new price is real information) but
     are flagged at read-time in the scorecard so they're easy to spot and reconcile."""
     _migrate_jsonl_once()
+    # Was this name already tracked before this call? If so, the new row is a re-call —
+    # we still log it (its own price + SPY anchor are captured below, permanently), and
+    # drop a non-blocking Activity ping so you can reconcile it whenever, never a modal.
+    already_tracked = has_open(ticket.ticker)
     price = get_quote(ticket.ticker).price
 
     sector = ""
@@ -136,6 +140,16 @@ def log_recommendation(
         sector_etf_last_price=etf_price,
     )
     db_repo.save_shadow_trade(trade)
+    # Non-blocking awareness of a re-call. Cooldowned so re-analyzing a name many times
+    # in a day doesn't spam the rail; the underlying trades are all still logged + marked.
+    if already_tracked and not db_repo.event_exists_recent("shadow_dup", ticket.ticker, 6.0):
+        db_repo.save_research_event(
+            event_type="shadow_dup", ticker=ticket.ticker.upper(), severity="info",
+            title=f"{ticket.ticker.upper()} re-called at ${price:.2f} — already in shadow",
+            summary=(f"Logged a fresh {source} paper trade at ${price:.2f} "
+                     f"(SPY ${bench_price:.2f}) on top of an existing call. Both are kept and "
+                     "the new one is marked 'repeat' in Shadow — reconcile there whenever, no rush."),
+            source="shadow")
     return trade
 
 
@@ -182,6 +196,33 @@ def set_user_executed(trade_id: str, executed: bool) -> None:
             t.user_executed = executed
             db_repo.save_shadow_trade(t)
             return
+
+
+def reconcile_duplicate(trade_id: str, mode: str) -> dict:
+    """Resolve a duplicate re-call, on your schedule (never a blocking prompt).
+
+    `trade_id` is the newer re-call (the row marked 'repeat'). mode:
+      - 'replace' — this new call supersedes the prior one(s): close the older open
+        trades for the same ticker, keep the new one. Their captured price + SPY anchor
+        are preserved on the closed rows, so the history stays intact.
+      - 'keep'    — keep both; just clear the 'repeat'-driven nudge (no-op on data)."""
+    _migrate_jsonl_once()
+    trades = db_repo.all_shadow_trades()
+    new = next((t for t in trades if t.id == trade_id), None)
+    if new is None:
+        return {"ok": False, "error": "trade not found"}
+    closed = 0
+    if mode == "replace":
+        older = [t for t in trades if t.ticker == new.ticker and not t.closed
+                 and t.id != new.id and t.entry_at < new.entry_at]
+        for t in older:
+            t.closed = True
+            t.closed_at = _now()
+            t.close_reason = f"superseded by later {new.source} re-call"
+        if older:
+            db_repo.save_shadow_trades(older)
+            closed = len(older)
+    return {"ok": True, "closed": closed, "ticker": new.ticker, "mode": mode}
 
 
 def scoreboard(refresh: bool = False) -> dict:

@@ -104,6 +104,11 @@ class DeepResearchBody(BaseModel):
     ticker: str
 
 
+class ReconcileBody(BaseModel):
+    trade_id: str
+    mode: str  # "replace" | "keep"
+
+
 # ----- API ----- #
 def _state(pf=None):
     pf = pf or brain.portfolio()
@@ -258,6 +263,13 @@ def structural_risk(refresh: bool = False):
 def agent_runs(limit: int = Query(20, ge=1, le=100), kind: str | None = None):
     """The audit trail of agentic loops (chat, deep research). Reads the DB."""
     return {"runs": brain.agent_runs(limit=limit, kind=kind)}
+
+
+@app.post("/api/shadow/reconcile")
+def shadow_reconcile(body: ReconcileBody):
+    """Resolve a duplicate shadow re-call on demand — 'replace' closes the older
+    open call(s) for that name, 'keep' leaves both. Never blocks; runs when you choose."""
+    return brain.reconcile_duplicate(body.trade_id, body.mode)
 
 
 @app.get("/api/missions")
