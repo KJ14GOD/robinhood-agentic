@@ -202,27 +202,21 @@ def reconcile_duplicate(trade_id: str, mode: str) -> dict:
     """Resolve a duplicate re-call, on your schedule (never a blocking prompt).
 
     `trade_id` is the newer re-call (the row marked 'repeat'). mode:
-      - 'replace' — this new call supersedes the prior one(s): close the older open
-        trades for the same ticker, keep the new one. Their captured price + SPY anchor
-        are preserved on the closed rows, so the history stays intact.
+      - 'replace' — this new call supersedes the prior one(s): delete the older open
+        trades for the same ticker outright, keeping only this one as the live call.
       - 'keep'    — keep both; just clear the 'repeat'-driven nudge (no-op on data)."""
     _migrate_jsonl_once()
     trades = db_repo.all_shadow_trades()
     new = next((t for t in trades if t.id == trade_id), None)
     if new is None:
         return {"ok": False, "error": "trade not found"}
-    closed = 0
+    removed = 0
     if mode == "replace":
-        older = [t for t in trades if t.ticker == new.ticker and not t.closed
+        older = [t.id for t in trades if t.ticker == new.ticker and not t.closed
                  and t.id != new.id and t.entry_at < new.entry_at]
-        for t in older:
-            t.closed = True
-            t.closed_at = _now()
-            t.close_reason = f"superseded by later {new.source} re-call"
         if older:
-            db_repo.save_shadow_trades(older)
-            closed = len(older)
-    return {"ok": True, "closed": closed, "ticker": new.ticker, "mode": mode}
+            removed = db_repo.delete_shadow_trades(older)
+    return {"ok": True, "removed": removed, "ticker": new.ticker, "mode": mode}
 
 
 def scoreboard(refresh: bool = False) -> dict:

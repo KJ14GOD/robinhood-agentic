@@ -1038,7 +1038,12 @@ function showAnalysisModal(ticker, t) {
   const meta = t.cached
     ? `Cached research${t.refreshed_at ? ` · ${new Date(t.refreshed_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
     : "Fresh LLM research · saved to DB";
+  const sources = (t.sources || []).length
+    ? `<span class="lbl">Sources</span><ul class="dr-list src-list">${t.sources.slice(0, 8).map((x) =>
+        `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.url)}</a></li>`).join("")}</ul>`
+    : "";
   showModal(`<div class="card" style="border:none;box-shadow:none;padding:0">${ticketHTML(t)}
+    ${sources}
     <div class="fb">
       <button class="yes" onclick="fb('${ticker}',true)">Good idea</button>
       <button class="no" onclick="fb('${ticker}',false)">Pass</button>
@@ -1185,12 +1190,12 @@ async function loadScore(refresh = false) {
     </tr>`).join("");
 }
 async function reconcileDup(tradeId, ticker) {
-  if (!confirm(`Replace the older ${ticker} call(s) with this one? The older paper trade closes; this re-call becomes the live one.`)) return;
+  if (!confirm(`Replace the older ${ticker} call(s) with this one? The older paper trade(s) are deleted and this re-call becomes the live one.`)) return;
   try {
     const r = await api("shadow/reconcile", { trade_id: tradeId, mode: "replace" });
-    toast(r && r.ok ? `${ticker}: closed ${r.closed} older call${r.closed === 1 ? "" : "s"}` : "Could not reconcile");
+    toast(r && r.ok ? `${ticker}: removed ${r.removed} older call${r.removed === 1 ? "" : "s"}` : "Could not reconcile");
   } catch (e) { toast("Could not reconcile"); }
-  loadScore(true);
+  loadScore(true);  // re-fetch with fresh marks + prices
 }
 window.reconcileDup = reconcileDup;
 $("#runScore").onclick = () => loadScore(true);

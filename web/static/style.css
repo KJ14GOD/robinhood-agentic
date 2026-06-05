@@ -457,6 +457,10 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
   color:var(--brain);font-size:11px;font-weight:560;opacity:0;transition:opacity .12s}
 .grid tr.sc-dup:hover .sc-replace{opacity:.85}
 .sc-replace:hover{opacity:1;text-decoration:underline}
+/* sources list on the analyze card */
+.src-list a{color:var(--brain);text-decoration:none}
+.src-list a:hover{text-decoration:underline}
+.src-list li{font-size:12.5px;margin:2px 0}
 /* best/worst vs-SPY leaderboard — "which calls beat the market, by how much" */
 .lead-list{display:flex;flex-direction:column}
 .lead-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;

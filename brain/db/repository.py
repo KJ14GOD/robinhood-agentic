@@ -473,6 +473,24 @@ def save_shadow_trades(trades: list[ShadowTrade]) -> None:
         return
 
 
+def delete_shadow_trades(ids: list[str]) -> int:
+    """Hard-delete paper trades by id. Used when a duplicate re-call replaces the older
+    call(s) outright. Returns how many rows were removed."""
+    if not _ensure_ready() or not ids:
+        return 0
+    try:
+        with db_session() as session:
+            n = 0
+            for tid in ids:
+                row = session.get(ShadowTradeRecord, tid)
+                if row:
+                    session.delete(row)
+                    n += 1
+            return n
+    except Exception:
+        return 0
+
+
 def all_shadow_trades() -> list[ShadowTrade]:
     if not _ensure_ready():
         return []

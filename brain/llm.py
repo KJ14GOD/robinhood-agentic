@@ -142,12 +142,21 @@ def web_research(task: str, max_searches: int = 5, max_tokens: int = 2500,
         text = "".join(b.text for b in resp.content if b.type == "text")
         if text:
             brief = text  # the final (end_turn) response carries the full synthesis
-        for b in resp.content:  # harvest cited sources off the text blocks
+        for b in resp.content:
+            # 1) inline citations the model attached to its prose, and
             for c in (getattr(b, "citations", None) or []):
                 url = getattr(c, "url", None)
                 if url and url not in seen:
                     seen.add(url)
                     sources.append({"url": url, "title": (getattr(c, "title", "") or url)[:200]})
+            # 2) the raw results the search returned (reliable even when the model
+            #    didn't cite inline). web_search_tool_result.content carries the hits.
+            if getattr(b, "type", "") == "web_search_tool_result":
+                for hit in (getattr(b, "content", None) or []):
+                    url = getattr(hit, "url", None)
+                    if url and url not in seen:
+                        seen.add(url)
+                        sources.append({"url": url, "title": (getattr(hit, "title", "") or url)[:200]})
         if resp.stop_reason == "pause_turn":
             continue  # server search loop hit its per-request cap — re-send to resume
         break

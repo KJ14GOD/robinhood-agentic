@@ -184,14 +184,26 @@ def chat_stream(body: ChatBody):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+def _analyst_sources(ticker: str) -> list[dict]:
+    """The cited sources from this ticker's most recent analyst run (for the card)."""
+    tk = ticker.upper().strip()
+    for run in brain.agent_runs(limit=40, kind="analyst"):
+        step = next((s for s in (run.get("steps") or []) if s.get("type") == "analyst"), None)
+        if step and (step.get("ticker") or "").upper() == tk:
+            return step.get("sources") or []
+    return []
+
+
 @app.post("/api/analyze")
 def analyze(body: AnalyzeBody):
     if not body.refresh:
         cached = brain.cached_analysis(body.ticker)
         if cached:
+            cached["sources"] = _analyst_sources(body.ticker)
             return cached
     out = brain.analyze(body.ticker).model_dump()
     out["cached"] = False
+    out["sources"] = _analyst_sources(body.ticker)
     return out
 
 
