@@ -202,6 +202,22 @@ def scorecard(refresh: bool = False) -> dict:
     best_ids = {t.id for t in best}
     worst = [t for t in reversed(ranked) if t.id not in best_ids][:3]
 
+    # Mark duplicates: when an open name carries more than one paper trade, the earliest
+    # is the primary and the later re-calls are flagged so they're easy to spot/reconcile
+    # in the table (we keep them — a re-call at a new price is real information).
+    open_groups: dict[str, list] = {}
+    for t in trades:
+        if not t.closed:
+            open_groups.setdefault(t.ticker, []).append(t)
+    dup_ids: set[str] = set()
+    for group in open_groups.values():
+        if len(group) > 1:
+            for t in sorted(group, key=lambda x: x.entry_at)[1:]:
+                dup_ids.add(t.id)
+    trade_rows = [_row(t) for t in sorted(trades, key=lambda x: x.entry_at, reverse=True)]
+    for r in trade_rows:
+        r["duplicate"] = r["id"] in dup_ids
+
     return {
         "headline": headline,
         "forming": forming_summary,
@@ -212,5 +228,5 @@ def scorecard(refresh: bool = False) -> dict:
         "narrative": _narrative(headline, forming_summary, by_bucket, by_source),
         "best": [_row(t) for t in best],
         "worst": [_row(t) for t in worst],
-        "trades": [_row(t) for t in sorted(trades, key=lambda x: x.entry_at, reverse=True)],
+        "trades": trade_rows,
     }

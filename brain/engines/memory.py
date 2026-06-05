@@ -126,12 +126,16 @@ def _judge(thesis, holding: Holding, sig: TrendSignals | None, trigger: str) -> 
     upnl = holding.unrealized_pct
     pos = f"unrealized {upnl:+.0f}% from cost." if upnl is not None else "cost basis unknown."
     try:
-        brief = llm.web_research(_revisit_task(thesis, trigger), max_searches=4)
+        brief, sources = llm.web_research(_revisit_task(thesis, trigger), max_searches=4, return_sources=True)
     except Exception:  # noqa: BLE001 — degrade to headlines rather than skip the call
-        brief = ""
+        brief, sources = "", []
     grounding = (f"LIVE WEB RESEARCH (current, cited):\n{brief.strip()}"
                  if brief.strip() else headlines_as_prompt(thesis.ticker, limit=5))
     social = sentiment.sentiment_prompt(thesis.ticker)  # secondary crowd context, if any
+    social_note = (" If the crowd read bears on the call, name it in your sentence "
+                   "(e.g. crowd still euphoric while the name breaks down = no capitulation, "
+                   "more downside) — as positioning, never as fact. Skip it if it doesn't matter."
+                   if social else "")
     prompt = f"""Re-judge this stored investment thesis against what just changed. Be conservative.
 
 TICKER: {thesis.ticker}
@@ -150,11 +154,28 @@ Has the invalidation condition ACTUALLY been met, or is this normal volatility?
 - status 'broken' ONLY if the evidence clearly matches the stated invalidation.
 - status 'review' if the thesis is at genuine risk and warrants a human look.
 - status 'active' if it still holds and this is noise.
-Give the matching action label and ONE grounded sentence citing the specific evidence."""
+Give the matching action label and ONE grounded sentence citing the specific evidence.{social_note}"""
     try:
-        return llm.parse(prompt, ThesisVerdict, max_tokens=1200)
+        verdict = llm.parse(prompt, ThesisVerdict, max_tokens=1200)
     except Exception:
         return None
+    # Persist the evidence the re-judge actually read — the live brief, its cited
+    # sources, and the verdict — so the decision is auditable after the fact instead
+    # of throwing the reasoning away. Best-effort: never let it break the judgement.
+    try:
+        db_repo.save_agent_run(
+            query=f"Re-judge {thesis.ticker}: {trigger}",
+            answer=(brief or grounding),
+            kind="rejudge",
+            steps=[{"type": "rejudge", "ticker": thesis.ticker, "trigger": trigger,
+                    "status": verdict.status, "label": verdict.decision_label,
+                    "reason": verdict.reason, "brief": brief, "sources": sources}],
+            tools_used="web_search" if brief else "headlines",
+            model=llm.MODEL,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return verdict
 
 
 def revisit_theses(pf: Portfolio, profile: RiskProfile) -> list[dict]:

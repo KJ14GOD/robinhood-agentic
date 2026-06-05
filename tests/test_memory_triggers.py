@@ -73,7 +73,9 @@ class JudgeGroundingTests(unittest.TestCase):
 
         def fake_web(task, **kw):
             self._web_calls += 1
-            return "Live, cited brief on what triggered the review."
+            brief = "Live, cited brief on what triggered the review."
+            sources = [{"url": "https://example.com/x", "title": "Example"}]
+            return (brief, sources) if kw.get("return_sources") else brief
 
         memory.llm.web_research = fake_web
         memory.llm.parse = lambda prompt, schema, **kw: ThesisVerdict(

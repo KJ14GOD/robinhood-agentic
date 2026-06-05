@@ -303,7 +303,11 @@ def learn():
 
 
 async def _refresh_loop() -> None:
-    """Keep broker/price/shadow data warm without spending LLM tokens."""
+    """FAST loop — keep broker/price/shadow data warm without spending LLM tokens.
+
+    Deliberately tiny: only the cheap, no-LLM work that the live UI depends on. The
+    expensive, multi-minute brain work lives in its own loop (`_brain_loop`) so a long
+    deep dive can never block the price refresh and make the data look stale."""
     while True:
         try:
             await asyncio.to_thread(brain.refresh_live_state)
@@ -319,45 +323,50 @@ async def _refresh_loop() -> None:
             await asyncio.to_thread(brain.run_monitors)  # cheap, no-LLM event scan
         except Exception as e:  # noqa: BLE001
             logger.warning("monitor scan failed: %s", e)
+        await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
+
+
+async def _brain_loop() -> None:
+    """SLOW loop — the expensive, LLM-spending brain work, fully decoupled from the
+    live-data refresh. Each step is gated/cooldowned in its own engine (a calm book
+    spends nothing) and guarded so one failure can't stall the rest. Because this runs
+    independently, a multi-minute deep dive here never freezes prices or trips the
+    'updater looks down' banner — that was the bug. Cadence ceiling only; the gates do
+    the real throttling."""
+    while True:
         # Social sentiment: ping when a name's Reddit chatter spikes. One cheap call,
-        # gated + fully quarantined (no-op when disabled), so it can't disturb the rest.
+        # gated + fully quarantined (no-op when disabled).
         try:
             await asyncio.to_thread(brain.ingest_sentiment)
         except Exception as e:  # noqa: BLE001
             logger.warning("sentiment ingest failed: %s", e)
-        # Living memory: re-judge triggered theses. Gated, so usually a no-op; its
-        # own guard so an LLM hiccup can't disturb price refresh or the monitor.
+        # Living memory: re-judge triggered theses. Gated, so usually a no-op.
         try:
             await asyncio.to_thread(brain.revisit_memory)
         except Exception as e:  # noqa: BLE001
             logger.warning("memory revisit failed: %s", e)
-        # Strategy missions: re-run any whose daily cadence lapsed. Gated per
-        # mission, so a calm set spends nothing; its own guard for the same reason.
+        # Strategy missions: re-run any whose daily cadence lapsed. Gated per mission.
         try:
             await asyncio.to_thread(brain.run_due_missions)
         except Exception as e:  # noqa: BLE001
             logger.warning("mission run failed: %s", e)
-        # Autonomous deep research: dive names that just hit a high-signal trigger (logged by the
-        # steps above this cycle) and drop the report into the ping feed. Heavily gated + cooldowned
-        # in the engine, so a calm book spends nothing; its own guard so a dive can't disturb the rest.
+        # Autonomous deep research: dive names that just hit a high-signal trigger and
+        # drop the report into the ping feed. Heavily gated + cooldowned in the engine.
         try:
             await asyncio.to_thread(brain.run_autoresearch)
         except Exception as e:  # noqa: BLE001
             logger.warning("autoresearch failed: %s", e)
-        # Structural (portfolio-level) risk read + autonomous concentration ping. Gated like the
-        # feed on the allocation signature, so a steady book spends nothing.
+        # Structural (portfolio-level) risk read + autonomous concentration ping.
         try:
             await asyncio.to_thread(brain.run_structural_risk)
         except Exception as e:  # noqa: BLE001
             logger.warning("structural risk failed: %s", e)
-        # Pre-warm the curated findings feed (over the freshly-logged events) so
-        # it's ready the moment the user opens the tab. Cached + signature-gated,
-        # so a calm book with no new events recomputes only when the TTL lapses.
+        # Pre-warm the curated findings feed so it's ready when the user opens the tab.
         try:
             await asyncio.to_thread(brain.prewarm_feed)
         except Exception as e:  # noqa: BLE001
             logger.warning("feed pre-warm failed: %s", e)
-        await asyncio.sleep(config.AUTO_REFRESH_SECONDS)
+        await asyncio.sleep(config.BRAIN_LOOP_SECONDS)
 
 
 def _briefing_exists_today(kind: str) -> bool:
@@ -397,7 +406,8 @@ async def start_background_refresh() -> None:
         pass
     if config.AUTO_REFRESH_SECONDS > 0:
         _REFRESH["started"] = time.time()
-        asyncio.create_task(_refresh_loop())
+        asyncio.create_task(_refresh_loop())   # fast: live data only
+        asyncio.create_task(_brain_loop())     # slow: LLM brain work, decoupled
     if config.AUTO_BRIEFINGS:
         asyncio.create_task(_briefing_loop())
 

@@ -768,6 +768,62 @@ async function loadDeepLog() {
   }).join("") + `</div>`;
 }
 
+// ---------- Re-judgement evidence (audit trail) ----------
+// Loaded alongside Activity; a thesis judgement row links to its evidence here.
+let REJUDGE_RUNS = [];
+const REJUDGE_PILL = { broken: "sell", review: "trim", active: "buy" };
+
+async function loadRejudgeRuns() {
+  let runs = [];
+  try { const r = await api("agent_runs?kind=rejudge&limit=60"); runs = r.runs || []; } catch (e) {}
+  REJUDGE_RUNS = runs.map((run) => {
+    const step = (run.steps || []).find((s) => s.type === "rejudge") || {};
+    return { ...step, at: run.created_at, brief: step.brief || run.answer || "" };
+  }).filter((s) => s.ticker);
+}
+
+// Match a thesis event to the re-judgement that produced it: same ticker, closest
+// timestamp within a few minutes (the event and the saved run are written together).
+function rejudgeForEvent(e) {
+  if (!e || !e.ticker) return null;
+  const tk = e.ticker.toUpperCase();
+  const t = new Date(e.created_at).getTime();
+  let best = null, bestGap = Infinity;
+  for (const s of REJUDGE_RUNS) {
+    if ((s.ticker || "").toUpperCase() !== tk) continue;
+    const gap = Math.abs(new Date(s.at).getTime() - t);
+    if (gap < bestGap) { bestGap = gap; best = s; }
+  }
+  return bestGap <= 10 * 60 * 1000 ? best : null;  // within 10 min
+}
+
+function openRejudgeFor(ticker, iso) {
+  const s = rejudgeForEvent({ ticker, created_at: iso });
+  if (s) openRejudge(s);
+}
+window.openRejudgeFor = openRejudgeFor;
+
+function openRejudge(s) {
+  if (!s) return;
+  const srcs = (s.sources || []).length
+    ? `<span class="lbl">Sources cited</span><ul class="dr-list">${s.sources.map((x) =>
+        `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.url)}</a></li>`).join("")}</ul>`
+    : `<span class="lbl">Sources cited</span><p class="muted">No live web citations — graded off recent headlines.</p>`;
+  showModal(`<div class="card dr" style="border:none;box-shadow:none;padding:0">
+    <div class="dr-head">
+      <div class="dr-id"><h3>${esc(s.ticker)}</h3><span class="pill ${REJUDGE_PILL[s.status] || "neutral"}">${esc(s.label || s.status)}</span></div>
+      <span class="dr-conv">${(s.at || "").slice(0, 10)}</span>
+    </div>
+    <span class="lbl">What triggered the review</span><p>${esc(s.trigger || "—")}</p>
+    <span class="lbl">Verdict</span><p>${esc(s.reason || "—")}</p>
+    ${s.brief ? `<div class="dr-web"><span class="lbl">Live web evidence it read</span><p>${esc(s.brief).replace(/\n/g, "<br>")}</p></div>` : ""}
+    ${srcs}
+    <p class="muted dr-foot">Persisted audit trail · ${esc(s.ticker)} · this is exactly what the brain read before re-grading the thesis.</p>
+  </div>`);
+  $("#modalCard").classList.add("modal-wide");
+}
+window.openRejudge = openRejudge;
+
 function renderBriefings(items) {
   const box = $("#briefings");
   if (!box) return;
@@ -830,6 +886,7 @@ async function loadActivity() {
   let r;
   try { r = await api("events?limit=120"); } catch (e) { return; }
   ACT_EVENTS = (r && r.events) || [];
+  await loadRejudgeRuns();  // so thesis rows can link straight to their evidence
   renderActivity();
   markPingsRead(ACT_EVENTS);  // looking at the full log clears the "new" pings
 }
@@ -855,10 +912,14 @@ function renderActivity() {
     const d = actDay(e.created_at);
     if (d !== lastDay) { html += `<div class="act-day">${esc(d)}</div>`; lastDay = d; }
     const kind = actKind(e);
+    const ev = rejudgeForEvent(e);  // a saved re-judgement behind this row?
+    const evBtn = ev
+      ? ` <button class="act-evidence" onclick="openRejudgeFor('${esc(e.ticker)}','${esc(e.created_at)}')">evidence${(ev.sources || []).length ? ` · ${ev.sources.length} src` : ""} →</button>`
+      : "";
     html += `<div class="act-row ${kind} ${esc(e.severity || "info")}">
       <span class="act-time">${esc(actTime(e.created_at))}</span>
       <span class="act-tk"${e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : ""}>${esc(e.ticker || "")}</span>
-      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${esc(e.summary || "")}</span></span>
+      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${esc(e.summary || "")}${evBtn}</span></span>
     </div>`;
   }
   box.innerHTML = html;
@@ -1110,10 +1171,10 @@ async function loadScore(refresh = false) {
 
   // Every call — the full ledger with age; forming rows dimmed and tagged.
   $("#scoreRows").innerHTML = (c.trades || []).map((t) => `
-    <tr class="${t.mature ? "" : "sc-forming"}">
+    <tr class="${t.mature ? "" : "sc-forming"}${t.duplicate ? " sc-dup" : ""}">
       <td>${(t.entry_at || "").slice(0, 10)}</td>
       <td>${t.age_days}d${t.mature ? "" : ' <span class="sc-tag">forming</span>'}</td>
-      <td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}</td>
+      <td class="tk" onclick="analyze('${t.ticker}')">${t.ticker}${t.duplicate ? ' <span class="sc-tag dup" title="A later re-call of a name already tracked — kept for reference">repeat</span>' : ""}</td>
       <td><span class="sc-call">${t.decision_label || t.action}</span></td>
       <td>${t.conviction}</td>
       <td>$${(t.entry_price || 0).toFixed(2)}</td>

@@ -26,6 +26,9 @@ SIGNAL_TTL_SECONDS = int(os.environ.get("SIGNAL_TTL_SECONDS", "900"))
 SCREEN_TTL_SECONDS = int(os.environ.get("SCREEN_TTL_SECONDS", "1800"))
 NEWS_TTL_SECONDS = int(os.environ.get("NEWS_TTL_SECONDS", "900"))
 AUTO_REFRESH_SECONDS = int(os.environ.get("AUTO_REFRESH_SECONDS", "120"))
+# Cadence ceiling for the heavy LLM brain loop (decoupled from the fast price refresh
+# so a long deep dive can't stall live data). The engines self-gate; this is just a floor.
+BRAIN_LOOP_SECONDS = int(os.environ.get("BRAIN_LOOP_SECONDS", "180"))
 AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true", "yes", "on"}
 # Autonomous deep research: let the brain run unprompted deep dives on high-signal triggers
 # (a thesis breaking/under review, a mission name promoted to BUY) and drop the report into the

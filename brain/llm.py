@@ -111,19 +111,25 @@ WEB_SEARCH_TOOL = {
 
 
 def web_research(task: str, max_searches: int = 5, max_tokens: int = 2500,
-                 max_steps: int = 6) -> str:
+                 max_steps: int = 6, return_sources: bool = False):
     """Run a focused, web-search-enabled pass and return a synthesized, cited prose brief.
 
     Server-side web search only (no client tools). This is the *gather* half of the two-step the
     engines need: web search can't share a request with structured output (`messages.parse`), so an
     engine calls this to get current, cited grounding, then feeds the brief into a normal parse call
     to structure it. Handles the multi-request server loop (pause_turn) and the code-execution
-    container the search-result filtering runs in (container_id must be carried across requests)."""
+    container the search-result filtering runs in (container_id must be carried across requests).
+
+    With `return_sources=True`, also returns the de-duped list of cited web sources
+    ({"url","title"}) pulled from the search citations, so callers can persist a clickable
+    evidence trail. Default stays a bare str for the existing callers."""
     cl = client()
     tool = {**WEB_SEARCH_TOOL, "max_uses": max_searches}
     messages: list[dict] = [{"role": "user", "content": f"{today_line()}\n\n{task}"}]
     container_id: str | None = None
     brief = ""
+    sources: list[dict] = []
+    seen: set[str] = set()
     for _ in range(max_steps):
         resp = cl.messages.create(
             model=MODEL, max_tokens=max_tokens, system=_system_blocks(),
@@ -136,7 +142,13 @@ def web_research(task: str, max_searches: int = 5, max_tokens: int = 2500,
         text = "".join(b.text for b in resp.content if b.type == "text")
         if text:
             brief = text  # the final (end_turn) response carries the full synthesis
+        for b in resp.content:  # harvest cited sources off the text blocks
+            for c in (getattr(b, "citations", None) or []):
+                url = getattr(c, "url", None)
+                if url and url not in seen:
+                    seen.add(url)
+                    sources.append({"url": url, "title": (getattr(c, "title", "") or url)[:200]})
         if resp.stop_reason == "pause_turn":
             continue  # server search loop hit its per-request cap — re-send to resume
         break
-    return brief
+    return (brief, sources) if return_sources else brief

@@ -96,7 +96,10 @@ def log_recommendation(
     signals=None,
 ) -> ShadowTrade:
     """Snapshot a recommendation as a paper trade at the current price, anchored
-    to the market (SPY) and the stock's sector ETF so it can be graded later."""
+    to the market (SPY) and the stock's sector ETF so it can be graded later.
+
+    Duplicates are kept on purpose (a re-call at a new price is real information) but
+    are flagged at read-time in the scorecard so they're easy to spot and reconcile."""
     _migrate_jsonl_once()
     price = get_quote(ticket.ticker).price
 
