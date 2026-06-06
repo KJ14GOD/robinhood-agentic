@@ -23,7 +23,7 @@ from brain.models import RiskProfile
 from brain.portfolio import manual as manual_pf
 from brain import config
 
-app = FastAPI(title="Stock Research Brain")
+app = FastAPI(title="Signal Research Engine")
 STATIC = Path(__file__).parent / "static"
 logger = logging.getLogger("brain.refresh")
 
@@ -185,13 +185,9 @@ def chat_stream(body: ChatBody):
 
 
 def _analyst_sources(ticker: str) -> list[dict]:
-    """The cited sources from this ticker's most recent analyst run (for the card)."""
-    tk = ticker.upper().strip()
-    for run in brain.agent_runs(limit=40, kind="analyst"):
-        step = next((s for s in (run.get("steps") or []) if s.get("type") == "analyst"), None)
-        if step and (step.get("ticker") or "").upper() == tk:
-            return step.get("sources") or []
-    return []
+    """Sources for the card — from the unified evidence store (everything the brain has
+    gathered on this name: web research + catalysts), deduped, most-recent first."""
+    return brain.evidence(ticker, limit=12)
 
 
 @app.post("/api/analyze")
@@ -364,6 +360,12 @@ async def _brain_loop() -> None:
             await asyncio.to_thread(brain.ingest_sentiment)
         except Exception as e:  # noqa: BLE001
             logger.warning("sentiment ingest failed: %s", e)
+        # Catalyst radar: surface fresh structured company news on the user's names.
+        # Cheap HTTP scan, gated + cooldowned, fully quarantined (no-op with no key).
+        try:
+            await asyncio.to_thread(brain.ingest_catalysts)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("catalyst ingest failed: %s", e)
         # Living memory: re-judge triggered theses. Gated, so usually a no-op.
         try:
             await asyncio.to_thread(brain.revisit_memory)

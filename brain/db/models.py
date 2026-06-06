@@ -103,6 +103,30 @@ class ResearchEventRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class EvidenceItemRecord(Base):
+    """A single piece of sourced evidence the brain gathered on a ticker — one row per
+    source (web article, catalyst, filing). Deduped by (ticker, url) so the same source
+    surfaced by different engines collapses to one row, with last_seen refreshed. This
+    is the unified, reusable evidence store: instead of citations being trapped inside
+    each run's JSON, the whole app can answer 'what does the brain know about X, and from
+    where' from one place."""
+
+    __tablename__ = "evidence_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(20), default="", index=True)
+    url: Mapped[str] = mapped_column(String(700), default="", index=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(160), default="")   # publisher / domain
+    snippet: Mapped[str] = mapped_column(Text, default="")          # optional excerpt/summary
+    kind: Mapped[str] = mapped_column(String(40), default="web", index=True)   # web | catalyst | filing
+    engine: Mapped[str] = mapped_column(String(40), default="", index=True)    # analyst | rejudge | catalysts | deep_research
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+    __table_args__ = (Index("ix_evidence_ticker_url", "ticker", "url"),)
+
+
 class TickerResearchRecord(Base):
     __tablename__ = "ticker_research"
 

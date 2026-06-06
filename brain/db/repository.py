@@ -13,6 +13,7 @@ from ..models import (
 from .models import (
     AgentRunRecord,
     BriefingRecord,
+    EvidenceItemRecord,
     MissionCandidateRecord,
     MissionRecord,
     PortfolioSnapshot,
@@ -201,6 +202,42 @@ def load_research_state() -> ResearchState | None:
             )
     except Exception:
         return None
+
+
+def delete_watchlist_item(ticker: str) -> bool:
+    """Hard-delete a watchlist row. `save_research_state` is upsert-only, so removing a
+    name from the state isn't enough — the row must be deleted explicitly or it reappears
+    on the next load. Returns True if a row was removed."""
+    if not _ensure_ready() or not ticker:
+        return False
+    try:
+        with db_session() as session:
+            row = session.execute(
+                select(WatchlistItemRecord).where(WatchlistItemRecord.ticker == ticker.upper())
+            ).scalars().first()
+            if not row:
+                return False
+            session.delete(row)
+            return True
+    except Exception:
+        return False
+
+
+def delete_thesis(ticker: str) -> bool:
+    """Hard-delete a stored thesis row (same upsert-only caveat as the watchlist)."""
+    if not _ensure_ready() or not ticker:
+        return False
+    try:
+        with db_session() as session:
+            row = session.execute(
+                select(ThesisRecord).where(ThesisRecord.ticker == ticker.upper())
+            ).scalars().first()
+            if not row:
+                return False
+            session.delete(row)
+            return True
+    except Exception:
+        return False
 
 
 def save_research_state(state: ResearchState) -> None:
@@ -580,6 +617,67 @@ def recent_agent_runs(limit: int = 20, kind: str | None = None) -> list[dict]:
                     "tools_used": r.tools_used,
                     "model": r.model,
                     "created_at": r.created_at.isoformat() if r.created_at else "",
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+# --- evidence store (unified, reusable sources) ----------------------------- #
+def record_evidence(ticker: str, items: list[dict], kind: str = "web", engine: str = "") -> int:
+    """Upsert sourced evidence for a ticker. `items` are {url, title, source?, snippet?}.
+    Deduped on (ticker, url): a source seen again just refreshes last_seen/title rather
+    than duplicating. Best-effort; returns how many rows were written or refreshed."""
+    if not _ensure_ready() or not ticker or not items:
+        return 0
+    tk = ticker.upper().strip()
+    n = 0
+    try:
+        with db_session() as session:
+            for it in items:
+                url = (it.get("url") or "").strip()
+                if not url:
+                    continue
+                row = session.execute(
+                    select(EvidenceItemRecord)
+                    .where(EvidenceItemRecord.ticker == tk)
+                    .where(EvidenceItemRecord.url == url)
+                    .limit(1)
+                ).scalars().first()
+                if row is None:
+                    row = EvidenceItemRecord(ticker=tk, url=url, first_seen=datetime.now(timezone.utc))
+                    session.add(row)
+                row.title = (it.get("title") or row.title or url)[:1000]
+                row.source = (it.get("source") or row.source or "")[:160]
+                if it.get("snippet"):
+                    row.snippet = it["snippet"][:2000]
+                row.kind = kind or row.kind or "web"
+                row.engine = engine or row.engine or ""
+                row.last_seen = datetime.now(timezone.utc)
+                n += 1
+    except Exception:
+        return 0
+    return n
+
+
+def evidence_for(ticker: str, limit: int = 30) -> list[dict]:
+    """All evidence gathered on a ticker, most-recently-seen first."""
+    if not _ensure_ready() or not ticker:
+        return []
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(EvidenceItemRecord)
+                .where(EvidenceItemRecord.ticker == ticker.upper().strip())
+                .order_by(desc(EvidenceItemRecord.last_seen))
+                .limit(limit)
+            ).scalars().all()
+            return [
+                {
+                    "url": r.url, "title": r.title, "source": r.source,
+                    "snippet": r.snippet, "kind": r.kind, "engine": r.engine,
+                    "last_seen": r.last_seen.isoformat() if r.last_seen else "",
                 }
                 for r in rows
             ]

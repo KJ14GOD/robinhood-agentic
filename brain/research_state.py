@@ -171,6 +171,29 @@ def set_watch_target(ticker: str, target_entry: float) -> ResearchState:
     return save_state(state)
 
 
+def remove_watch_item(ticker: str) -> bool:
+    """Drop a name from the watchlist. Returns True if it was there. Saving alone is
+    upsert-only, so we also delete the DB row explicitly or it would reappear on reload."""
+    state = load_state()
+    ticker = ticker.upper()
+    before = len(state.watchlist)
+    state.watchlist = [w for w in state.watchlist if w.ticker != ticker]
+    save_state(state)
+    removed_db = db_repo.delete_watchlist_item(ticker)
+    return removed_db or len(state.watchlist) != before
+
+
+def remove_thesis(ticker: str) -> bool:
+    """Drop a stored thesis on a name (stops it being re-judged). Returns True if found."""
+    state = load_state()
+    ticker = ticker.upper()
+    existed = ticker in state.theses
+    state.theses.pop(ticker, None)
+    save_state(state)
+    removed_db = db_repo.delete_thesis(ticker)
+    return removed_db or existed
+
+
 def summarize_for_prompt(max_items: int = 20) -> str:
     state = load_state()
     lines: list[str] = []

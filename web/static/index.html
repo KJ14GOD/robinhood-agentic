@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Signal · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=51" />
+<link rel="stylesheet" href="/static/style.css?v=54" />
 </head>
 <body>
 <div id="app">
@@ -27,16 +27,16 @@
   <div id="staleBanner" class="stale-banner hidden"></div>
 
   <nav>
-    <button class="tab active" data-tab="brain">Brain<span class="tab-badge hidden" id="badgeBrain"></span></button>
+    <button class="tab active" data-tab="brain">Today<span class="tab-badge hidden" id="badgeBrain"></span></button>
     <button class="tab" data-tab="activity">Activity<span class="tab-badge hidden" id="badgeActivity"></span></button>
     <button class="tab" data-tab="portfolio">Portfolio</button>
     <button class="tab" data-tab="memory">Memory</button>
-    <button class="tab" data-tab="shadow">Shadow</button>
-    <button class="tab" data-tab="profile">Profile</button>
+    <button class="tab" data-tab="shadow">Scorecard</button>
+    <button class="tab" data-tab="profile">Settings</button>
   </nav>
 
   <main>
-    <!-- BRAIN: daily workspace + agentic chat -->
+    <!-- TODAY: daily workspace + agentic chat -->
     <section id="brain" class="panel active">
       <div class="brain-shell">
         <div class="workspace">
@@ -66,7 +66,7 @@
               <button class="ghost" id="runDiscover">Find</button>
             </div>
           </div>
-          <p class="sub">A screen across 500+ stocks finds candidates outside your holdings; the brain writes the thesis and tracks them in the feed.</p>
+          <p class="sub">A screen across 500+ stocks finds candidates outside your holdings; Signal writes the thesis and tracks them in the feed.</p>
           <div id="ideas" class="cards"></div>
 
           <div class="section-head">
@@ -149,12 +149,12 @@
 
     </section>
 
-    <!-- ACTIVITY: dense terminal log of what the brain noticed and decided -->
+    <!-- ACTIVITY: dense terminal log of what Signal noticed and decided -->
     <section id="activity" class="panel">
       <div class="act-head">
         <div>
           <h2>Activity</h2>
-          <p class="sub" id="actSub">What the brain has noticed and decided, newest first.</p>
+          <p class="sub" id="actSub">What Signal has noticed and decided, newest first.</p>
         </div>
         <div class="act-filter" id="actFilter">
           <button class="on" data-f="all">All</button>
@@ -165,15 +165,15 @@
       <div class="actlog" id="actLog"></div>
     </section>
 
-    <!-- MEMORY: the brain's accumulated research -->
+    <!-- MEMORY: Signal's accumulated research -->
     <section id="memory" class="panel">
       <div class="mem-head">
         <h2>Research memory</h2>
-        <p class="sub" id="memSub">What the brain has concluded and is still tracking — its reasoning, recalled instantly.</p>
+        <p class="sub" id="memSub">What Signal has concluded and is still tracking — its reasoning, recalled instantly.</p>
       </div>
 
       <div class="section-head"><h3>Strategy missions</h3></div>
-      <p class="sc-cap">Standing themes the brain tracks on its own — it builds each roster, keeps it current, and labels every name without being asked.</p>
+      <p class="sc-cap">Standing themes Signal tracks on its own — it builds each roster, keeps it current, and labels every name without being asked.</p>
       <div class="mission-new">
         <input id="missionInput" placeholder="Track a theme — e.g. defense stocks, stable AI exposure, data-center power" />
         <select id="missionMode" title="Risk flavor">
@@ -189,13 +189,13 @@
       <div id="memBody"></div>
 
       <div class="section-head" style="margin-top:32px"><h3>Recent deep dives</h3></div>
-      <p class="sc-cap">Full cited research reports the brain has run. Open one to re-read its plan, bull/bear, and self-critique.</p>
+      <p class="sc-cap">Full cited research reports Signal has run. Open one to re-read its plan, bull/bear, and self-critique.</p>
       <div id="deepLog"></div>
     </section>
 
-    <!-- SHADOW -->
+    <!-- SCORECARD -->
     <section id="shadow" class="panel">
-      <div class="row between"><h2>Shadow track record</h2><button class="ghost" id="runScore">Refresh</button></div>
+      <div class="row between"><h2>Scorecard</h2><button class="ghost" id="runScore">Refresh</button></div>
       <p class="sub">Every recommendation — from the analyst, discovery, and the assistant — is logged as a paper trade and graded against the market. The honest scorecard, before you trust it with real money.</p>
 
       <div class="sc-read" id="scoreRead"></div>
@@ -210,7 +210,7 @@
         </div>
         <div class="sc-cut">
           <div class="section-head"><h3>By engine</h3></div>
-          <p class="sc-cap">Which part of the brain has actually had edge.</p>
+          <p class="sc-cap">Which engine has actually had edge.</p>
           <table class="grid sc-grid"><thead><tr>
             <th>Source</th><th>Calls</th><th>Win</th><th>Return</th><th>vs SPY</th>
           </tr></thead><tbody id="scoreSource"></tbody></table>
@@ -220,7 +220,7 @@
       <div class="sc-cuts">
         <div class="sc-cut">
           <div class="section-head"><h3>Beating SPY</h3></div>
-          <p class="sc-cap">The brain's calls that most outran the market — alpha since each call's own entry.</p>
+          <p class="sc-cap">Signal's calls that most outran the market — alpha since each call's own entry.</p>
           <div class="lead-list" id="scoreBest"></div>
         </div>
         <div class="sc-cut">
@@ -236,19 +236,19 @@
       </tr></thead><tbody id="scoreRows"></tbody></table>
     </section>
 
-    <!-- PROFILE -->
+    <!-- SETTINGS -->
     <section id="profile" class="panel">
-      <div class="row between"><h2>Investor profile</h2><button class="ghost" id="learnBtn">↻ Learn from my holdings</button></div>
-      <p class="sub">The lens every recommendation passes through. It evolves from what you accept/reject and what you actually hold.</p>
+      <div class="row between"><h2>Settings</h2><button class="ghost" id="learnBtn">↻ Learn from holdings</button></div>
+      <p class="sub">Profile, limits, and preferences that shape every recommendation. Signal updates this from what you accept, reject, and actually hold.</p>
       <div id="learned"></div>
       <div class="form" id="profileForm"></div>
-      <button class="primary" id="saveProfile">Save profile</button>
+      <button class="primary" id="saveProfile">Save settings</button>
     </section>
   </main>
 
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=51"></script>
+<script src="/static/app.js?v=54"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@ single import surface for everything above the engine layer.
 """
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime
 from typing import Iterator
@@ -252,6 +253,7 @@ def run_structural_risk():
 
 # ---------- social sentiment (quarantined, secondary signal) ----------
 _SENT_CACHE: dict = {"at": 0.0}
+_CAT_CACHE: dict = {"at": 0.0}
 
 
 def _social_universe() -> set[str]:
@@ -313,6 +315,82 @@ def ingest_sentiment() -> int:
     return fired
 
 
+def _owned_or_watched() -> set[str]:
+    """Names you hold or watch — catalysts on these ping loudly (warn); research-only
+    names (theses, missions) log quietly (info)."""
+    s: set[str] = set()
+    try:
+        s.update(h.ticker.upper() for h in get_portfolio().holdings)
+    except Exception:
+        pass
+    try:
+        s.update(w.ticker.upper() for w in research_state.load_state().watchlist)
+    except Exception:
+        pass
+    return s
+
+
+_PAREN_TICKER = re.compile(r"\(([A-Z]{1,5})\)")
+
+
+def _about_another_company(headline: str, tk: str) -> bool:
+    """Finnhub tags any article that mentions a symbol, so a headline can really be about
+    a *different* company. When the headline names tickers in parens (e.g. 'Reddit (RDDT)')
+    and our ticker isn't among them, it's about that other name — skip it as off-target."""
+    found = {m.upper() for m in _PAREN_TICKER.findall(headline or "")}
+    return bool(found) and tk.upper() not in found
+
+
+def ingest_catalysts() -> int:
+    """Catalyst radar: scan the user's names for fresh company news (Finnhub) and ping
+    when something material just landed. One cheap HTTP call per name (cached), gated to
+    FINNHUB_TTL_SECONDS, fully quarantined (no-op with no key). Per-name cooldown keeps
+    it from spamming; off-target headlines (about a different company) and headlines already
+    surfaced for another name this scan are filtered out. Returns the number of pings fired."""
+    from .data import catalysts
+    if not catalysts.available():
+        return 0
+    now = time.time()
+    if now - _CAT_CACHE["at"] < config.FINNHUB_TTL_SECONDS:
+        return 0
+    _CAT_CACHE["at"] = now
+    universe = _social_universe()
+    if not universe:
+        return 0
+    loud = _owned_or_watched()
+    seen_headlines: set[str] = set()  # dedup the same article across names this scan
+    fired = 0
+    for tk in universe:
+        if db_repo.event_exists_recent("catalyst", tk, config.FINNHUB_COOLDOWN_HOURS):
+            continue  # already surfaced a catalyst for this name recently
+        # first fresh item that's actually about THIS name and not already used
+        c = None
+        for cand in catalysts.fresh_items(tk, config.FINNHUB_FRESH_HOURS):
+            key = (cand.headline or "").strip().lower()
+            if not key or key in seen_headlines or _about_another_company(cand.headline, tk):
+                continue
+            c = cand
+            break
+        if not c:
+            continue
+        seen_headlines.add((c.headline or "").strip().lower())
+        age = int(c.age_hours)
+        when = "just now" if age < 1 else f"{age}h ago"
+        src = f" · {c.source}" if c.source else ""
+        db_repo.save_research_event(
+            event_type="catalyst", ticker=tk,
+            severity="warn" if tk in loud else "info",
+            title=f"{tk}: {c.headline}"[:160],
+            summary=f"{(c.summary or 'Fresh news on a name you track.')[:200]} ({when}{src}) {c.url}".strip(),
+            source="catalysts")
+        if c.url:  # also fold into the unified evidence store
+            db_repo.record_evidence(tk, [{"url": c.url, "title": c.headline,
+                                          "source": c.source, "snippet": c.summary}],
+                                    kind="catalyst", engine="catalysts")
+        fired += 1
+    return fired
+
+
 def run_monitors() -> list[dict]:
     """Cheap deterministic event scan over the live portfolio. Persists new,
     deduped events to the DB. Called by the background loop — no LLM, no tokens."""
@@ -355,6 +433,11 @@ def scorecard(refresh: bool = False) -> dict:
 def agent_runs(limit: int = 20, kind: str | None = None) -> list[dict]:
     """The audit trail: recent agent loops with their tool traces. Reads the DB."""
     return db_repo.recent_agent_runs(limit=limit, kind=kind)
+
+
+def evidence(ticker: str, limit: int = 30) -> list[dict]:
+    """The unified evidence the brain has gathered on a ticker (web + catalysts), deduped."""
+    return db_repo.evidence_for(ticker, limit=limit)
 
 
 # --- strategy missions ------------------------------------------------------ #

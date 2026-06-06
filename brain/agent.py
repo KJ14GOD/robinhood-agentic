@@ -18,6 +18,7 @@ from .data.news import get_news
 from .data.prices import get_chart, get_signals, screen_universe
 from .data.universe import screening_universe
 from .db import repository as db_repo
+from .engines import missions
 from .engines.discovery import _flavor_ok, _screen_score
 from .models import TradeTicket
 from .portfolio import get_portfolio
@@ -42,6 +43,16 @@ You are operating in AGENT MODE with tools. Work like a real analyst:
   **Watch:** optional, only if there is a specific trigger/level/event.
 - You proactively surface findings the user didn't explicitly ask for but should know
   (a concentration risk, a holding breaking down, a standout opportunity).
+
+MANAGING THE BRAIN (control tools — you can change the user's tracked state):
+- You can add/remove watchlist names, set entry-price alerts, drop stored theses, and start /
+  pause / resume / archive / delete strategy missions. This lets the user run the app by talking.
+- Only mutate state on a CLEAR, EXPLICIT user request ("add NVDA to my watchlist", "stop tracking
+  the defense mission", "drop the RKLB thesis"). Never delete or remove something on your own
+  initiative or as a side effect of analysis.
+- For removing a mission, prefer 'archive' (keeps the history) unless the user clearly wants it
+  gone for good — then 'delete'. When unsure which name they mean, ask rather than guess.
+- After any change, state plainly what you did (the tool already returns a confirmation).
 
 USING WEB SEARCH:
 - The quantitative tools (signals, screen, chart) give you numbers; web_search gives you the
@@ -175,6 +186,70 @@ TOOLS = [
             "required": ["ticker", "action", "conviction", "thesis"],
         },
     },
+    {
+        "name": "remove_watchlist_item",
+        "description": "Remove a ticker from the user's watchlist. Use only when the user "
+                       "explicitly asks to stop watching or drop a name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"ticker": {"type": "string"}},
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "set_watch_target",
+        "description": "Set (or clear, with 0) an entry-price alert on a watchlist name — the "
+                       "brain pings when it trades at/below this price. Use when the user wants "
+                       "to be alerted at a specific entry price.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string"},
+                "target_entry": {"type": "number", "description": "Alert price; 0 clears it."},
+            },
+            "required": ["ticker", "target_entry"],
+        },
+    },
+    {
+        "name": "drop_thesis",
+        "description": "Delete the brain's stored thesis on a ticker (stops it being re-judged). "
+                       "Use only when the user explicitly asks to drop or forget a thesis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"ticker": {"type": "string"}},
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "start_mission",
+        "description": "Start a standing 'strategy mission' that tracks a theme/sector (e.g. "
+                       "'defense stocks', 'data-center power'); the brain builds and maintains a "
+                       "roster of names on its own. Use when the user asks to track a theme. Note: "
+                       "this researches names live, so it takes a few seconds.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "The theme to track."},
+                "mode": {"type": "string", "enum": ["any", "stable", "balanced", "volatile"]},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "manage_mission",
+        "description": "Pause, resume, archive, or delete an existing strategy mission, matched by "
+                       "its title. 'archive' stops tracking but keeps it; 'delete' removes it "
+                       "permanently. Use only on an explicit user request; prefer 'archive' unless "
+                       "the user clearly wants it gone for good.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Name/topic of the mission to act on."},
+                "action": {"type": "string", "enum": ["pause", "resume", "archive", "delete"]},
+            },
+            "required": ["title", "action"],
+        },
+    },
     llm.WEB_SEARCH_TOOL,
 ]
 
@@ -240,11 +315,23 @@ def _tool_chart(ticker: str, span: str = "3m") -> str:
     return get_chart(ticker, span).summary()
 
 
-def _tool_save_watchlist(ticker: str, reason: str, mode: str = "balanced",
+def _tool_save_watchlist(ticker: str, reason: str, mode: str = "",
                          max_allocation_pct: float = 0.0) -> str:
-    research_state.save_watch_item(ticker, reason, mode, max_allocation_pct)
+    tkr = ticker.upper().strip()
+    existing = next((w for w in research_state.load_state().watchlist if w.ticker == tkr), None)
+    valid_mode = mode if mode in ("stable", "balanced", "volatile") else ""
+    if existing:
+        # Already tracked — never clobber a curated entry on a casual re-add. Only apply an
+        # explicit mode change; otherwise report it's already there and leave it untouched.
+        if valid_mode and valid_mode != existing.mode:
+            research_state.save_watch_item(tkr, existing.reason, valid_mode, existing.max_allocation_pct)
+            return f"{tkr} was already on your watchlist — changed its mode to {valid_mode} (kept your note)."
+        note = f": {existing.reason}" if existing.reason else ""
+        return (f"{tkr} is already on your watchlist (tracked as {existing.mode}{note}). "
+                "Left it unchanged — tell me if you want to change its mode, note, or set an entry alert.")
+    research_state.save_watch_item(tkr, reason, valid_mode or "balanced", max_allocation_pct)
     size = f", max allocation {max_allocation_pct:.1f}%" if max_allocation_pct else ""
-    return f"Saved {ticker.upper()} to watchlist as {mode}{size}: {reason}"
+    return f"Added {tkr} to watchlist as {valid_mode or 'balanced'}{size}: {reason}"
 
 
 def _tool_log_recommendation(ticker: str, action: str, conviction: int, thesis: str,
@@ -266,6 +353,64 @@ def _tool_log_recommendation(ticker: str, action: str, conviction: int, thesis: 
             f"{(' and ' + trade.sector_etf) if trade.sector_etf else ''}.")
 
 
+def _tool_remove_watchlist(ticker: str) -> str:
+    ok = research_state.remove_watch_item(ticker)
+    return (f"Removed {ticker.upper()} from the watchlist."
+            if ok else f"{ticker.upper()} wasn't on the watchlist — nothing to remove.")
+
+
+def _tool_set_watch_target(ticker: str, target_entry: float) -> str:
+    research_state.set_watch_target(ticker, target_entry)
+    t = float(target_entry or 0.0)
+    if t <= 0:
+        return f"Cleared the entry-price alert on {ticker.upper()}."
+    return (f"Set an entry-price alert on {ticker.upper()} at ${t:.2f} — "
+            "I'll ping you when it trades at or below that.")
+
+
+def _tool_drop_thesis(ticker: str) -> str:
+    ok = research_state.remove_thesis(ticker)
+    return (f"Dropped the stored thesis on {ticker.upper()} — it won't be re-judged."
+            if ok else f"No stored thesis on {ticker.upper()} to drop.")
+
+
+def _tool_start_mission(title: str, mode: str = "any") -> str:
+    mode = mode if mode in ("any", "stable", "balanced", "volatile") else "any"
+    m = missions.create_mission(title, mode, profile_store.load_profile())
+    names = ", ".join(c.ticker for c in m.candidates[:8]) or "no names yet"
+    return f"Started mission '{m.title}' ({m.mode}). Initial roster: {names}."
+
+
+def _find_mission(title: str):
+    title_l = (title or "").lower().strip()
+    if not title_l:
+        return None
+    all_m = db_repo.all_missions()
+    for m in all_m:  # exact title first
+        if m.title.lower() == title_l:
+            return m
+    for m in all_m:  # then a substring match either way
+        ml = m.title.lower()
+        if title_l in ml or ml in title_l:
+            return m
+    return None
+
+
+def _tool_manage_mission(title: str, action: str) -> str:
+    m = _find_mission(title)
+    if not m:
+        return f"No mission matching '{title}'. Check the exact theme name in the Memory tab."
+    if action == "delete":
+        db_repo.delete_mission(m.id)
+        return f"Deleted mission '{m.title}' permanently."
+    status = {"pause": "paused", "resume": "active", "archive": "archived"}.get(action)
+    if not status:
+        return f"Unknown action '{action}'."
+    db_repo.set_mission_status(m.id, status)
+    verb = {"paused": "paused", "active": "resumed", "archived": "archived"}[status]
+    return f"Mission '{m.title}' {verb}."
+
+
 _DISPATCH: dict[str, Callable[..., str]] = {
     "get_stock_signals": _tool_get_signals,
     "get_stock_news": _tool_get_news,
@@ -277,6 +422,11 @@ _DISPATCH: dict[str, Callable[..., str]] = {
     "get_stock_chart": _tool_chart,
     "save_watchlist_item": _tool_save_watchlist,
     "log_recommendation": _tool_log_recommendation,
+    "remove_watchlist_item": _tool_remove_watchlist,
+    "set_watch_target": _tool_set_watch_target,
+    "drop_thesis": _tool_drop_thesis,
+    "start_mission": _tool_start_mission,
+    "manage_mission": _tool_manage_mission,
 }
 
 

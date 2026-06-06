@@ -49,6 +49,15 @@ SENTIMENT_TTL_SECONDS = int(os.environ.get("SENTIMENT_TTL_SECONDS", "1800"))  # 
 SENTIMENT_BUZZ_PCT = int(os.environ.get("SENTIMENT_BUZZ_PCT", "50"))   # mention spike % that pings
 SENTIMENT_BUZZ_MIN = int(os.environ.get("SENTIMENT_BUZZ_MIN", "25"))   # min absolute mentions to count
 
+# --- Catalyst radar (Finnhub structured company news) ---
+# A real, timestamped news feed so the brain proactively surfaces fresh catalysts on
+# your names. Fully quarantined + gated on the key: with no key it's a clean no-op.
+FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "").strip()
+FINNHUB_ENABLED = os.environ.get("FINNHUB_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+FINNHUB_TTL_SECONDS = int(os.environ.get("FINNHUB_TTL_SECONDS", "900"))      # 15 min cache + scan gate
+FINNHUB_FRESH_HOURS = int(os.environ.get("FINNHUB_FRESH_HOURS", "6"))        # only ping news newer than this
+FINNHUB_COOLDOWN_HOURS = float(os.environ.get("FINNHUB_COOLDOWN_HOURS", "6"))  # max one catalyst ping/name per window
+
 # --- Persistence paths ---
 PROFILE_PATH = DATA_DIR / "profile.json"
 SHADOW_PATH = DATA_DIR / "shadow_ledger.jsonl"

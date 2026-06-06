@@ -578,7 +578,7 @@ function renderMemory() {
   if (!body) return;
   const items = memItems();
   if (!items.length) {
-    body.innerHTML = `<div class="wl-empty">Nothing tracked yet. Analyze a holding or run Discover — every thesis the brain forms is remembered here.</div>`;
+    body.innerHTML = `<div class="wl-empty">Nothing tracked yet. Analyze a holding or run Discover — every thesis Signal forms is remembered here.</div>`;
     return;
   }
   body.innerHTML = memDossier(items);
@@ -628,7 +628,7 @@ function renderMissions() {
   if (!box) return;
   const visible = MISSIONS.filter((m) => m.status !== "archived");
   if (!visible.length) {
-    box.innerHTML = `<p class="mission-empty">No missions yet. Name a theme above and the brain will build and track a roster for it.</p>`;
+    box.innerHTML = `<p class="mission-empty">No missions yet. Name a theme above and Signal will build and track a roster for it.</p>`;
     return;
   }
   box.innerHTML = visible.map((m) => {
@@ -818,7 +818,7 @@ function openRejudge(s) {
     <span class="lbl">Verdict</span><p>${esc(s.reason || "—")}</p>
     ${s.brief ? `<div class="dr-web"><span class="lbl">Live web evidence it read</span><p>${esc(s.brief).replace(/\n/g, "<br>")}</p></div>` : ""}
     ${srcs}
-    <p class="muted dr-foot">Persisted audit trail · ${esc(s.ticker)} · this is exactly what the brain read before re-grading the thesis.</p>
+    <p class="muted dr-foot">Persisted audit trail · ${esc(s.ticker)} · this is exactly what Signal read before re-grading the thesis.</p>
   </div>`);
   $("#modalCard").classList.add("modal-wide");
 }
@@ -875,6 +875,14 @@ function actDay(iso) {
   if (diff === 1) return "Yesterday";
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
+// detail text, with a trailing source URL (catalyst pings) pulled out into a link
+function actDetail(e) {
+  const raw = e.summary || "";
+  const m = raw.match(/\s*(https?:\/\/\S+)\s*$/);
+  if (!m) return esc(raw);
+  const text = raw.slice(0, m.index).trim();
+  return `${esc(text)} <a class="act-src" href="${esc(m[1])}" target="_blank" rel="noopener" onclick="event.stopPropagation()">source →</a>`;
+}
 // the verb phrase: the stored title minus the leading ticker
 function actWhat(e) {
   let t = e.title || e.event_type || "";
@@ -901,10 +909,10 @@ function renderActivity() {
     const j = ACT_EVENTS.filter((e) => actKind(e) === "judgement").length;
     sub.textContent = ACT_EVENTS.length
       ? `${ACT_EVENTS.length} entries · ${j} judgement${j === 1 ? "" : "s"}`
-      : "What the brain has noticed and decided, newest first.";
+      : "What Signal has noticed and decided, newest first.";
   }
   if (!evs.length) {
-    box.innerHTML = `<div class="act-empty">Nothing logged yet. The brain writes here as it watches — checks run every couple of minutes.</div>`;
+    box.innerHTML = `<div class="act-empty">Nothing logged yet. Signal writes here as it watches — checks run every couple of minutes.</div>`;
     return;
   }
   let html = "", lastDay = null;
@@ -919,7 +927,7 @@ function renderActivity() {
     html += `<div class="act-row ${kind} ${esc(e.severity || "info")}">
       <span class="act-time">${esc(actTime(e.created_at))}</span>
       <span class="act-tk"${e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : ""}>${esc(e.ticker || "")}</span>
-      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${esc(e.summary || "")}${evBtn}</span></span>
+      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${actDetail(e)}${evBtn}</span></span>
     </div>`;
   }
   box.innerHTML = html;
@@ -945,7 +953,7 @@ async function loadFeed() {
         <div class="fd">${esc(x.detail)}</div>
       </div>
       <span class="pill ${x.kind}">${x.kind}</span>
-    </div>`).join("") : `<div class="loading">Nothing pressing right now. Add holdings or ask the brain below.</div>`;
+    </div>`).join("") : `<div class="loading">Nothing pressing right now. Add holdings or ask Signal below.</div>`;
 }
 $("#refreshFeed").onclick = () => loadFeed();
 
@@ -1028,7 +1036,7 @@ function showDeepReport(r) {
     <div class="dr-crit"><span class="lbl">Self-critique</span>${drList(r.critique)}</div>
     ${r.thesis ? `<span class="lbl">Thesis</span><p>${esc(r.thesis)}</p>` : ""}
     ${r.invalidation ? `<span class="lbl">Breaks if</span><p>${esc(r.invalidation)}</p>` : ""}
-    <p class="muted dr-foot">Saved to the brain's memory and audit trail · ${esc(r.ticker)}'s thesis updated · logged to the shadow track record. Execute manually if you act.</p>
+    <p class="muted dr-foot">Saved to Signal memory and audit trail · ${esc(r.ticker)}'s thesis updated · logged to the scorecard. Execute manually if you act.</p>
   </div>`);
   $("#modalCard").classList.add("modal-wide");
 }
@@ -1039,8 +1047,8 @@ function showAnalysisModal(ticker, t) {
     ? `Cached research${t.refreshed_at ? ` · ${new Date(t.refreshed_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
     : "Fresh LLM research · saved to DB";
   const sources = (t.sources || []).length
-    ? `<span class="lbl">Sources</span><ul class="dr-list src-list">${t.sources.slice(0, 8).map((x) =>
-        `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.url)}</a></li>`).join("")}</ul>`
+    ? `<span class="lbl">Sources <span class="src-count">${t.sources.length}</span></span><ul class="dr-list src-list">${t.sources.slice(0, 10).map((x) =>
+        `<li>${x.kind === "catalyst" ? '<span class="src-tag">catalyst</span> ' : ""}<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.url)}</a>${x.source ? ` <span class="src-pub">${esc(x.source)}</span>` : ""}</li>`).join("")}</ul>`
     : "";
   showModal(`<div class="card" style="border:none;box-shadow:none;padding:0">${ticketHTML(t)}
     ${sources}
@@ -1338,7 +1346,7 @@ function renderLearned() {
   const log = (p.learning_log || []);
   $("#learned").innerHTML = (p.investor_signature || log.length) ? `
     <div class="card" style="margin:0 0 18px">
-      ${p.investor_signature ? `<span class="lbl">What the brain has learned about you</span><p><strong>${esc(p.investor_signature)}</strong></p>` : ""}
+      ${p.investor_signature ? `<span class="lbl">What Signal has learned about you</span><p><strong>${esc(p.investor_signature)}</strong></p>` : ""}
       ${log.length ? `<span class="lbl">Recent adjustments (and why)</span>${log.slice(0, 6).map((l) => `<p>· ${esc(l)}</p>`).join("")}` : ""}
     </div>` : `<p class="sub">No learned signals yet — 👍/👎 some ideas or hit "Learn from my holdings".</p>`;
 }
@@ -1412,7 +1420,7 @@ function renderPings() {
     rail.classList.add("calm");
     rail.innerHTML = `
       <div class="ping-head">
-        <span class="ping-live calm">All caught up — the brain is watching</span>
+        <span class="ping-live calm">All caught up — Signal is watching</span>
         <div class="ping-actions">
           <button class="linklike" id="pingBell">${notifyOn() ? "notifications on" : "turn on notifications"}</button>
           <button class="linklike" onclick="document.querySelector('.tab[data-tab=activity]').click()">open Activity</button>
@@ -1475,8 +1483,8 @@ function maybeNotify(prevEvents) {
   const fresh = PING_EVENTS.filter((e) => (e.id || 0) > prevMax && (e.severity === "alert" || e.severity === "warn"));
   for (const e of fresh.slice(0, 3)) {
     try {
-      const n = new Notification(`${e.ticker ? e.ticker + " · " : ""}${e.title || "Brain update"}`,
-        { body: e.summary || "", tag: "brain-" + e.id });
+      const n = new Notification(`${e.ticker ? e.ticker + " · " : ""}${e.title || "Signal update"}`,
+        { body: e.summary || "", tag: "signal-" + e.id });
       n.onclick = () => { window.focus(); if (e.ticker) analyze(e.ticker); };
     } catch (_) { /* notification API can throw on some platforms — never let it break the loop */ }
   }

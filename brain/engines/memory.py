@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 
 from ..data.news import get_news, headlines_as_prompt
-from ..data import sentiment
+from ..data import sentiment, catalysts
 from ..data.prices import TrendSignals, get_earnings_date, get_signals_many
 from ..models import Holding, Portfolio, RiskProfile, ThesisVerdict, _now
 from .. import llm, research_state
@@ -131,6 +131,7 @@ def _judge(thesis, holding: Holding, sig: TrendSignals | None, trigger: str) -> 
         brief, sources = "", []
     grounding = (f"LIVE WEB RESEARCH (current, cited):\n{brief.strip()}"
                  if brief.strip() else headlines_as_prompt(thesis.ticker, limit=5))
+    cat = catalysts.catalysts_prompt(thesis.ticker)  # structured, dated recent news (empty if none)
     social = sentiment.sentiment_prompt(thesis.ticker)  # secondary crowd context, if any
     social_note = (" If the crowd read bears on the call, name it in your sentence "
                    "(e.g. crowd still euphoric while the name breaks down = no capitulation, "
@@ -148,6 +149,7 @@ WHAT TRIGGERED THIS REVIEW: {trigger}
 POSITION: {pos}
 CURRENT SIGNALS: {sig.as_prompt() if sig else 'n/a'}
 {grounding}
+{cat}
 {social}
 
 Has the invalidation condition ACTUALLY been met, or is this normal volatility?
@@ -173,6 +175,7 @@ Give the matching action label and ONE grounded sentence citing the specific evi
             tools_used="web_search" if brief else "headlines",
             model=llm.MODEL,
         )
+        db_repo.record_evidence(thesis.ticker, sources, kind="web", engine="rejudge")
     except Exception:  # noqa: BLE001
         pass
     return verdict

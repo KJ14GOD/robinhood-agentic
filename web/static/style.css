@@ -461,6 +461,13 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .src-list a{color:var(--brain);text-decoration:none}
 .src-list a:hover{text-decoration:underline}
 .src-list li{font-size:12.5px;margin:2px 0}
+.src-count{color:var(--faint);font-weight:600;font-size:11px}
+.src-pub{color:var(--faint);font-size:11px}
+.src-tag{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--brain);
+  border:1px solid #d9d4f0;background:#f4f2fc;border-radius:4px;padding:0 4px;font-weight:700}
+/* catalyst source link in the activity detail */
+.act-src{color:var(--brain);text-decoration:none;font-weight:560;white-space:nowrap}
+.act-src:hover{text-decoration:underline}
 /* best/worst vs-SPY leaderboard — "which calls beat the market, by how much" */
 .lead-list{display:flex;flex-direction:column}
 .lead-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;

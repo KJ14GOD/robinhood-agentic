@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from ..data.news import headlines_as_prompt
 from ..data.prices import get_signals
-from ..data import sentiment
+from ..data import sentiment, catalysts
 from ..db import repository as db_repo
 from ..models import RiskProfile, TradeTicket
 from .. import llm, research_state, shadow
@@ -35,6 +35,7 @@ def analyze(ticker: str, profile: RiskProfile, log_shadow: bool = True) -> Trade
         brief, sources = "", []
     news = (f"LIVE WEB RESEARCH (current, cited):\n{brief.strip()}"
             if brief.strip() else headlines_as_prompt(ticker))
+    cat = catalysts.catalysts_prompt(ticker)  # structured, dated recent news (empty if none)
     social = sentiment.sentiment_prompt(ticker)
     social_guidance = ("""
 When the social read is relevant, work it into your reasoning explicitly (one clause is
@@ -51,6 +52,7 @@ QUANTITATIVE SIGNALS (grounded — reason from these, don't invent):
 {signals.as_prompt()}
 
 {news}
+{cat}
 {social}
 {social_guidance}
 
@@ -73,6 +75,7 @@ on why it fits (or how to size it to fit) their personality. Be honest about con
                         "action": ticket.action, "label": ticket.decision_label}],
                 tools_used="web_search", model=llm.MODEL,
             )
+            db_repo.record_evidence(ticker, sources, kind="web", engine="analyst")
         except Exception:  # noqa: BLE001
             pass
     if log_shadow:
