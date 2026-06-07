@@ -1182,6 +1182,23 @@ async function loadScore(refresh = false) {
   $("#scoreWorst").innerHTML = (c.worst || []).length
     ? c.worst.map(leadRow).join("") : lockLead("Unlocks once calls mature.");
 
+  // Themes that are working — calls grouped by mission (with sector fallback), ranked
+  // by alpha. Mission rows deep-link to the Memory tab so you can lean into a winner.
+  const themes = c.themes || [];
+  $("#scoreThemes").innerHTML = themes.length
+    ? themes.map((t) => {
+        const isMission = t.kind === "mission";
+        const click = isMission
+          ? ` onclick="document.querySelector('.tab[data-tab=memory]').click()" title="Open this mission in Memory"` : "";
+        return `<div class="theme-row${isMission ? " mission" : ""}${t.graded ? "" : " provisional"}"${click}>
+          <span class="theme-name">${esc(t.theme)}<span class="theme-kind ${isMission ? "" : "sector"}">${isMission ? "mission" : "sector"}</span></span>
+          <span class="theme-alpha ${cls(t.avg_alpha_pct)}">${pct(t.avg_alpha_pct)}<em>vs SPY</em></span>
+          <span class="theme-beat">${t.beat_rate}%<em>beat</em></span>
+          <span class="theme-calls">${t.calls} call${t.calls === 1 ? "" : "s"}${t.graded ? "" : " · forming"}</span>
+        </div>`;
+      }).join("")
+    : `<p class="sc-locked-note">No themes yet — log some calls and they'll group by your missions here.</p>`;
+
   // Every call — the full ledger with age; forming rows dimmed and tagged.
   $("#scoreRows").innerHTML = (c.trades || []).map((t) => `
     <tr class="${t.mature ? "" : "sc-forming"}${t.duplicate ? " sc-dup" : ""}">

@@ -158,7 +158,7 @@ class ScorecardTests(unittest.TestCase):
         card = evaluation.scorecard(refresh=True)
 
         for key in ("headline", "forming", "calibration", "by_source", "by_label",
-                    "by_mode", "narrative", "best", "worst", "trades"):
+                    "by_mode", "narrative", "best", "worst", "themes", "trades"):
             self.assertIn(key, card)
         h = card["headline"]
         self.assertGreaterEqual(h["matured"], 2)
@@ -184,6 +184,33 @@ class ScorecardTests(unittest.TestCase):
         row = next(r for r in card["trades"] if r["ticker"] == "FRESHA")
         self.assertFalse(row["mature"])
         self.assertLess(row["age_days"], evaluation.MATURE_DAYS)
+
+    def test_theme_signal_sector_then_mission(self):
+        """Themes group by GICS sector by default, but a name in a mission roster is
+        attributed to that mission (the actionable theme), which takes precedence."""
+        from datetime import datetime, timedelta, timezone
+        from brain.engines import evaluation
+        from brain.models import Mission, MissionCandidate
+
+        old = (datetime.now(timezone.utc) - timedelta(days=evaluation.MATURE_DAYS + 3)).isoformat()
+        PRICES["THEMEA"] = 100.0
+        tr = shadow.log_recommendation(
+            _ticket("THEMEA", "buy", 8), source="discovery",
+            signals=TrendSignals(ticker="THEMEA", sector="Energy"))
+        tr.entry_at = old
+        repo.save_shadow_trade(tr)
+
+        themes = {t["theme"]: t for t in evaluation.scorecard(refresh=True)["themes"]}
+        self.assertIn("Energy", themes)                       # sector fallback
+        self.assertEqual(themes["Energy"]["kind"], "sector")
+
+        # Now put THEMEA in a mission — it should re-attribute to the mission theme.
+        repo.save_mission(Mission(id="m1", title="nuclear power", mode="any", status="active",
+                                  candidates=[MissionCandidate(ticker="THEMEA", label="BUY")]))
+        themes2 = {t["theme"]: t for t in evaluation.scorecard(refresh=True)["themes"]}
+        self.assertIn("nuclear power", themes2)
+        self.assertEqual(themes2["nuclear power"]["kind"], "mission")
+        self.assertNotIn("Energy", themes2)                   # mission supersedes the sector
 
     def test_agg_and_bucket_math(self):
         from brain.engines import evaluation as ev

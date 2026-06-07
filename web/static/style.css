@@ -482,6 +482,24 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .lead-alpha em,.lead-ret em{font-style:normal;color:var(--faint);font-weight:500;font-size:10px;margin-left:5px;letter-spacing:.02em}
 .sc-locked-note{color:var(--faint);font-style:italic;font-size:13px;padding:10px 8px;margin:0}
 
+/* themes that are working — calls grouped by mission/sector, ranked by alpha */
+.theme-list{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+.theme-row{display:grid;grid-template-columns:minmax(0,1.6fr) auto auto auto;align-items:center;
+  column-gap:16px;padding:11px 14px;border-bottom:1px solid var(--line2)}
+.theme-row:last-child{border-bottom:0}
+.theme-row.mission{cursor:pointer}
+.theme-row.mission:hover{background:var(--line2)}
+.theme-row.provisional{opacity:.62}
+.theme-name{font-weight:620;font-size:14px;display:flex;align-items:center;gap:8px;min-width:0}
+.theme-kind{font-size:9px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;
+  color:var(--brain);border:1px solid #d9d4f0;background:#f4f2fc;border-radius:4px;padding:1px 5px}
+.theme-kind.sector{color:var(--faint);border-color:#dcdce2;background:#f3f3f5}
+.theme-alpha{text-align:right;font-family:var(--mono);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
+.theme-beat{text-align:right;font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.theme-calls{text-align:right;font-size:11px;color:var(--faint);white-space:nowrap}
+.theme-alpha em,.theme-beat em{font-style:normal;color:var(--faint);font-weight:500;font-size:10px;margin-left:5px}
+@media(max-width:820px){ .theme-row{grid-template-columns:1fr auto;row-gap:2px} .theme-beat,.theme-calls{display:none} }
+
 @media(max-width:820px){ .sc-cuts{grid-template-columns:1fr;gap:6px} }
 
 /* strategy missions (Memory tab) */
