@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .. import shadow
+from ..db import repository as db_repo
 from ..models import ShadowTrade
 
 # A call has to clear this many days before it counts toward the trusted track
@@ -82,6 +83,50 @@ def _group(trades: list[ShadowTrade], keyfn) -> list[dict]:
         groups.setdefault(keyfn(t) or "—", []).append(t)
     rows = [{"key": k, **_agg(v)} for k, v in groups.items()]
     rows.sort(key=lambda r: r["count"], reverse=True)
+    return rows
+
+
+def _theme_signal(trades: list[ShadowTrade]) -> list[dict]:
+    """Which *themes* are working — the 'lean into what's winning' read. Groups benchmarked
+    calls by the user's mission rosters (the themes they actually curate), falling back to
+    GICS sector for names not in any mission, then ranks by alpha vs SPY. Graded over matured
+    calls; when nothing's matured yet it reports a provisional read over forming calls, flagged
+    so the UI stays honest. Coarse GICS sector alone is useless on a tech-heavy book — the
+    mission mapping is what makes this actionable."""
+    try:
+        missions = db_repo.all_missions(status="active")
+    except Exception:  # noqa: BLE001
+        missions = []
+    ticker_themes: dict[str, list[str]] = {}
+    for m in missions:
+        for c in getattr(m, "candidates", []):
+            lst = ticker_themes.setdefault(c.ticker.upper(), [])
+            if m.title not in lst:
+                lst.append(m.title)
+
+    benched = [t for t in trades if t.has_benchmark()]
+    groups: dict[str, dict] = {}
+    for t in benched:
+        themes = ticker_themes.get(t.ticker.upper())
+        pairs = ([(th, "mission") for th in themes]
+                 if themes else [((t.sector or "Unclassified"), "sector")])
+        for theme, kind in pairs:
+            g = groups.setdefault(theme, {"kind": kind, "trades": []})
+            g["trades"].append(t)
+
+    rows = []
+    for theme, g in groups.items():
+        mature_t = [t for t in g["trades"] if _age_days(t) >= MATURE_DAYS]
+        graded = len(mature_t) >= 1
+        a = _agg(mature_t if graded else g["trades"])
+        rows.append({
+            "theme": theme, "kind": g["kind"],
+            "calls": a["count"], "matured": len(mature_t), "graded": graded,
+            "avg_alpha_pct": a["avg_alpha_pct"], "beat_rate": a["beat_bench_rate"],
+            "avg_return_pct": a["avg_return_pct"],
+        })
+    # graded themes first, then strongest alpha; thin single-call themes sink naturally
+    rows.sort(key=lambda r: (r["graded"], r["avg_alpha_pct"]), reverse=True)
     return rows
 
 
@@ -228,5 +273,6 @@ def scorecard(refresh: bool = False) -> dict:
         "narrative": _narrative(headline, forming_summary, by_bucket, by_source),
         "best": [_row(t) for t in best],
         "worst": [_row(t) for t in worst],
+        "themes": _theme_signal(trades),
         "trades": trade_rows,
     }
