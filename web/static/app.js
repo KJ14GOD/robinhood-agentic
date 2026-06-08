@@ -106,6 +106,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "activity" && STATE) loadActivity();
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
   if (t.dataset.tab === "shadow" && STATE) loadScore(true);
+  if (t.dataset.tab === "evals" && STATE) loadEvals();
 }));
 
 // ---------- state / header ----------
@@ -1241,6 +1242,153 @@ function toggleTheme(i) {
 }
 window.toggleTheme = toggleTheme;
 $("#runScore").onclick = () => loadScore(true);
+
+// ---------- evals (error analysis on the brain's own traces) ----------
+let EVAL_TAXONOMY = [];
+let EVAL_KIND = "";
+const EVAL_KINDLABEL = { analyst: "Analyst", rejudge: "Re-judge", deep_research: "Deep research" };
+
+async function loadEvals() {
+  const box = $("#evalList");
+  if (box) box.innerHTML = `<div class="loading"><span class="spin"></span> Loading traces…</div>`;
+  let d;
+  try { d = await api("evals" + (EVAL_KIND ? `?kind=${EVAL_KIND}` : "")); }
+  catch (e) { if (box) box.innerHTML = `<p class="muted">Could not load evals.</p>`; return; }
+  EVAL_TAXONOMY = d.taxonomy || [];
+  renderEvalSuite(d.summary || {});
+  renderEvalList(d.traces || []);
+}
+
+function renderEvalSuite(s) {
+  const box = $("#evalSuite");
+  if (!box) return;
+  const total = s.labeled || 0, v = s.verdicts || {}, fails = s.failure_counts || [];
+  if (!total) {
+    box.innerHTML = `<div class="eval-empty">Nothing labeled yet — review a trace below. Your failure taxonomy builds itself from what you tag; that's the eval suite.</div>`;
+    return;
+  }
+  const chip = (k, cl) => `<span class="eval-stat ${cl}">${v[k] || 0}<em>${k}</em></span>`;
+  const max = fails.length ? fails[0].count : 1;
+  box.innerHTML = `
+    <div class="eval-suite-head">
+      <span class="eval-suite-n">${total} trace${total === 1 ? "" : "s"} labeled</span>
+      <div class="eval-verdicts">${chip("good", "good")}${chip("mixed", "mixed")}${chip("flawed", "flawed")}</div>
+    </div>
+    <span class="tb-lbl">Failure modes (your eval suite)</span>
+    <div class="eval-fails">${fails.length
+      ? fails.map((f) => `<div class="eval-fail"><span class="ef-label">${esc(f.label || f.tag)}</span><span class="ef-bar"><i style="width:${Math.round(f.count / max * 100)}%"></i></span><span class="ef-n">${f.count}</span></div>`).join("")
+      : '<p class="muted">No failure modes tagged yet.</p>'}</div>`;
+}
+
+function evalTicker(r) {
+  const s = (r.steps || [])[0] || {};
+  const fromStep = s.ticker || (s.report && s.report.ticker);
+  if (fromStep) return String(fromStep).toUpperCase();
+  return ((r.query || "").replace(/^(analyze|re-judge|deep research):?\s*/i, "").split(/[\s:]/)[0] || "").toUpperCase();
+}
+
+function renderEvalList(traces) {
+  const box = $("#evalList");
+  if (!box) return;
+  EVAL_TRACES = traces;
+  if (!traces.length) { box.innerHTML = `<p class="muted">No traces for this filter yet. Run an Analyze or Deep research, then come back.</p>`; return; }
+  box.innerHTML = traces.map((r, i) => {
+    const lab = r.label;
+    const tag = lab ? `<span class="eval-verdict-tag ${lab.verdict}">${esc(lab.verdict)}</span>` : `<span class="eval-unlabeled">unlabeled</span>`;
+    return `<div class="eval-item">
+      <div class="eval-row" onclick="toggleEval(${i})">
+        <span class="eval-caret" id="evalCaret${i}">▸</span>
+        <span class="eval-tk">${esc(evalTicker(r))}</span>
+        <span class="eval-kind">${esc(EVAL_KINDLABEL[r.kind] || r.kind)}</span>
+        <span class="eval-when">${(r.created_at || "").slice(0, 10)}</span>
+        ${tag}
+      </div>
+      <div class="eval-detail" id="evalDetail${i}" hidden>${traceBody(r)}${labelForm(r, lab)}</div>
+    </div>`;
+  }).join("");
+}
+let EVAL_TRACES = [];
+
+function traceBody(r) {
+  const step = (r.steps || [])[0] || {};
+  let out = "";
+  if (r.kind === "analyst") {
+    out = `${step.label ? `<div class="tb-call"><span class="pill ${step.action}">${esc(step.label)}</span> conviction ${step.conviction || "?"}/10</div>` : ""}
+      ${step.thesis ? `<span class="tb-lbl">Thesis</span><p>${esc(step.thesis)}</p>` : ""}
+      ${step.catalyst ? `<span class="tb-lbl">Catalyst</span><p>${esc(step.catalyst)}</p>` : ""}
+      ${step.risks ? `<span class="tb-lbl">Risks</span><p>${esc(step.risks)}</p>` : ""}`;
+  } else if (r.kind === "rejudge") {
+    const pill = step.status === "broken" ? "sell" : step.status === "review" ? "trim" : "buy";
+    out = `${step.status ? `<div class="tb-call"><span class="pill ${pill}">${esc(step.label || step.status)}</span></div>` : ""}
+      ${step.trigger ? `<span class="tb-lbl">What triggered it</span><p>${esc(step.trigger)}</p>` : ""}
+      ${step.reason ? `<span class="tb-lbl">Verdict</span><p>${esc(step.reason)}</p>` : ""}`;
+  } else if (r.kind === "deep_research") {
+    const rep = step.report || {};
+    out = `${rep.verdict ? `<div class="tb-call"><span class="pill ${rep.action}">${esc(rep.verdict)}</span> conviction ${rep.conviction || "?"}/10</div>` : ""}
+      ${rep.thesis ? `<span class="tb-lbl">Thesis</span><p>${esc(rep.thesis)}</p>` : ""}
+      ${(rep.critique || []).length ? `<span class="tb-lbl">Self-critique</span>${rep.critique.map((x) => `<p>· ${esc(x)}</p>`).join("")}` : ""}`;
+  }
+  const brief = step.brief || r.answer || "";
+  const sources = step.sources || (step.report && step.report.sources) || [];
+  if (brief) out += `<div class="tb-brief"><span class="tb-lbl">Evidence it read</span><p>${esc(brief).slice(0, 1400).replace(/\n/g, "<br>")}</p></div>`;
+  if (sources.length) out += `<span class="tb-lbl">Sources</span><ul class="dr-list src-list">${sources.slice(0, 8).map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></li>`).join("")}</ul>`;
+  return `<div class="tb">${out || '<p class="muted">No detail captured for this trace.</p>'}</div>`;
+}
+
+function labelForm(r, lab) {
+  const sel = new Set((lab && lab.failure_modes) || []);
+  const v = (lab && lab.verdict) || "";
+  const checks = EVAL_TAXONOMY.map((m) =>
+    `<label class="fm${sel.has(m.id) ? " on" : ""}" title="${esc(m.desc)}"><input type="checkbox" value="${m.id}"${sel.has(m.id) ? " checked" : ""}/> ${esc(m.label)}</label>`).join("");
+  const seedIds = new Set(EVAL_TAXONOMY.map((m) => m.id));
+  const custom = [...sel].filter((t) => !seedIds.has(t))
+    .map((t) => `<label class="fm on"><input type="checkbox" value="${esc(t)}" checked/> ${esc(t.replace(/_/g, " "))}</label>`).join("");
+  const vr = ["good", "mixed", "flawed"].map((x) =>
+    `<label class="vr${v === x ? " on " + x : ""}"><input type="radio" name="v_${esc(r.id)}" value="${x}"${v === x ? " checked" : ""}/> ${x}</label>`).join("");
+  return `<div class="eval-form" data-run="${esc(r.id)}" data-kind="${esc(r.kind)}" data-tk="${esc(evalTicker(r))}">
+    <span class="tb-lbl">Verdict</span><div class="ef-verdict">${vr}</div>
+    <span class="tb-lbl">What failed</span><div class="ef-modes">${checks}${custom}</div>
+    <input class="ef-custom" placeholder="add a failure mode (free text), e.g. anchored on price not fundamentals…"/>
+    <textarea class="ef-note" placeholder="the error-analysis note — what specifically failed, in your words">${esc((lab && lab.note) || "")}</textarea>
+    <button class="primary" onclick="saveEval(this)">${lab ? "Update label" : "Save label"}</button>
+  </div>`;
+}
+
+function toggleEval(i) {
+  const d = $("#evalDetail" + i), c = $("#evalCaret" + i);
+  if (!d) return;
+  d.hidden = !d.hidden;
+  if (c) c.textContent = d.hidden ? "▸" : "▾";
+}
+window.toggleEval = toggleEval;
+
+async function saveEval(btn) {
+  const form = btn.closest(".eval-form");
+  const runId = form.dataset.run;
+  const verdict = (form.querySelector("input[type=radio]:checked") || {}).value || "";
+  const modes = [...form.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value);
+  const custom = form.querySelector(".ef-custom").value.trim();
+  if (custom) modes.push(custom);
+  const note = form.querySelector(".ef-note").value;
+  if (!verdict && !modes.length && !note.trim()) { toast("Add a verdict or a failure mode first"); return; }
+  busy(btn, true);
+  try {
+    await api("evals/label", { run_id: runId, kind: form.dataset.kind, ticker: form.dataset.tk, verdict, failure_modes: modes, note });
+    toast("Label saved");
+    loadEvals();
+  } catch (e) { toast("Could not save label"); }
+  busy(btn, false);
+}
+window.saveEval = saveEval;
+
+$$("#evalFilter button").forEach((b) => b.addEventListener("click", () => {
+  $$("#evalFilter button").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on");
+  EVAL_KIND = b.dataset.k;
+  loadEvals();
+}));
+const _evalRefresh = $("#evalRefresh");
+if (_evalRefresh) _evalRefresh.onclick = () => loadEvals();
 
 // ---------- structural risk (portfolio tab) ----------
 async function loadStructuralRisk() {

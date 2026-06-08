@@ -109,6 +109,15 @@ class ReconcileBody(BaseModel):
     mode: str  # "replace" | "keep"
 
 
+class EvalLabelBody(BaseModel):
+    run_id: str
+    kind: str = ""
+    ticker: str = ""
+    verdict: str = ""              # good | mixed | flawed
+    failure_modes: list[str] = []
+    note: str = ""
+
+
 # ----- API ----- #
 def _state(pf=None):
     pf = pf or brain.portfolio()
@@ -278,6 +287,25 @@ def shadow_reconcile(body: ReconcileBody):
     """Resolve a duplicate shadow re-call on demand — 'replace' closes the older
     open call(s) for that name, 'keep' leaves both. Never blocks; runs when you choose."""
     return brain.reconcile_duplicate(body.trade_id, body.mode)
+
+
+@app.get("/api/evals")
+def evals_overview(limit: int = Query(30, ge=1, le=100), kind: str | None = None):
+    """The eval worklist + the emerging suite: reviewable traces (with any label) plus the
+    taxonomy and failure-mode frequencies."""
+    return {
+        "traces": brain.eval_traces(limit=limit, kind=kind),
+        "taxonomy": brain.eval_taxonomy(),
+        "summary": brain.eval_summary(),
+    }
+
+
+@app.post("/api/evals/label")
+def evals_label(body: EvalLabelBody):
+    """Persist a human error-analysis label on one trace."""
+    ok = brain.save_eval_label(body.run_id, body.kind, body.ticker, body.verdict,
+                               body.failure_modes, body.note)
+    return {"ok": ok, "summary": brain.eval_summary()}
 
 
 @app.get("/api/missions")

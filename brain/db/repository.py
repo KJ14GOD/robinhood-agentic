@@ -13,6 +13,7 @@ from ..models import (
 from .models import (
     AgentRunRecord,
     BriefingRecord,
+    EvalLabelRecord,
     EvidenceItemRecord,
     MissionCandidateRecord,
     MissionRecord,
@@ -622,6 +623,69 @@ def recent_agent_runs(limit: int = 20, kind: str | None = None) -> list[dict]:
             ]
     except Exception:
         return []
+
+
+# --- eval labels (error analysis on brain traces) --------------------------- #
+def save_eval_label(run_id: str, kind: str, ticker: str, verdict: str,
+                    failure_modes: list[str], note: str = "") -> bool:
+    """Upsert the human label on one trace (one label per run_id; latest wins)."""
+    if not _ensure_ready() or not run_id:
+        return False
+    try:
+        with db_session() as session:
+            row = session.execute(
+                select(EvalLabelRecord).where(EvalLabelRecord.run_id == run_id).limit(1)
+            ).scalars().first()
+            if row is None:
+                row = EvalLabelRecord(run_id=run_id, created_at=datetime.now(timezone.utc))
+                session.add(row)
+            row.kind = kind or row.kind or ""
+            row.ticker = (ticker or row.ticker or "").upper()
+            row.verdict = verdict or ""
+            row.failure_modes_json = json.dumps(failure_modes or [])
+            row.note = (note or "")[:4000]
+            row.updated_at = datetime.now(timezone.utc)
+        return True
+    except Exception:
+        return False
+
+
+def eval_labels_by_run(run_ids: list[str]) -> dict[str, dict]:
+    """Existing labels for a set of runs, keyed by run_id — so the review list can show
+    what's already been judged."""
+    if not _ensure_ready() or not run_ids:
+        return {}
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(EvalLabelRecord).where(EvalLabelRecord.run_id.in_(list(run_ids)))
+            ).scalars().all()
+            return {r.run_id: {"verdict": r.verdict,
+                               "failure_modes": json.loads(r.failure_modes_json or "[]"),
+                               "note": r.note} for r in rows}
+    except Exception:
+        return {}
+
+
+def eval_summary() -> dict:
+    """The emerging eval suite: how many traces labeled, verdict split, and failure-mode
+    frequencies (the taxonomy, ranked) — i.e. what the brain fails at, and how often."""
+    if not _ensure_ready():
+        return {"labeled": 0, "verdicts": {}, "failure_counts": []}
+    try:
+        with db_session() as session:
+            rows = session.execute(select(EvalLabelRecord)).scalars().all()
+        verdicts: dict[str, int] = {}
+        fails: dict[str, int] = {}
+        for r in rows:
+            verdicts[r.verdict] = verdicts.get(r.verdict, 0) + 1
+            for tag in json.loads(r.failure_modes_json or "[]"):
+                fails[tag] = fails.get(tag, 0) + 1
+        ranked = sorted(({"tag": k, "count": v} for k, v in fails.items()),
+                        key=lambda x: x["count"], reverse=True)
+        return {"labeled": len(rows), "verdicts": verdicts, "failure_counts": ranked}
+    except Exception:
+        return {"labeled": 0, "verdicts": {}, "failure_counts": []}
 
 
 # --- evidence store (unified, reusable sources) ----------------------------- #

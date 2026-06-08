@@ -440,6 +440,41 @@ def evidence(ticker: str, limit: int = 30) -> list[dict]:
     return db_repo.evidence_for(ticker, limit=limit)
 
 
+# --- eval layer (error analysis on the brain's own traces) ------------------ #
+def eval_taxonomy() -> list[dict]:
+    from . import evals
+    return evals.taxonomy()
+
+
+def eval_traces(limit: int = 30, kind: str | None = None) -> list[dict]:
+    """Recent reviewable brain traces (analyst / re-judge / deep research) with any label
+    already attached — the worklist for error analysis."""
+    runs = db_repo.recent_agent_runs(limit=limit, kind=kind)
+    if not kind:  # default to the reasoning products, not chat
+        runs = [r for r in runs if r.get("kind") in ("analyst", "rejudge", "deep_research")]
+    labels = db_repo.eval_labels_by_run([r["id"] for r in runs])
+    for r in runs:
+        r["label"] = labels.get(r["id"])
+    return runs
+
+
+def save_eval_label(run_id: str, kind: str, ticker: str, verdict: str,
+                    failure_modes: list[str], note: str = "") -> bool:
+    from . import evals
+    tags = [evals.normalize_tag(t) for t in (failure_modes or []) if t and t.strip()]
+    return db_repo.save_eval_label(run_id, kind, ticker, verdict, tags, note)
+
+
+def eval_summary() -> dict:
+    """The emerging eval suite — labeled count, verdict split, ranked failure modes (with
+    human-readable labels)."""
+    from . import evals
+    s = db_repo.eval_summary()
+    for row in s.get("failure_counts", []):
+        row["label"] = evals.pretty(row["tag"])
+    return s
+
+
 # --- strategy missions ------------------------------------------------------ #
 def list_missions(status: str | None = None) -> list[Mission]:
     return db_repo.all_missions(status=status)

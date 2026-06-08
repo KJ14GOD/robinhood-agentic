@@ -518,6 +518,62 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .theme-hint{margin:8px 0 2px;font-size:11.5px;color:var(--faint);font-style:italic}
 @media(max-width:820px){ .theme-row{grid-template-columns:1fr auto;row-gap:2px} .theme-beat,.theme-calls{display:none} }
 
+/* ---------- evals (error analysis) ---------- */
+.eval-suite{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;margin-top:12px;background:var(--card)}
+.eval-empty{color:var(--faint);font-style:italic;font-size:13.5px}
+.eval-suite-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.eval-suite-n{font-weight:660;font-size:14px}
+.eval-verdicts{display:flex;gap:8px}
+.eval-stat{font-family:var(--mono);font-weight:700;font-size:14px;padding:2px 8px;border-radius:6px;border:1px solid var(--line2)}
+.eval-stat em{font-style:normal;font-weight:500;font-size:10px;color:var(--faint);margin-left:5px;text-transform:uppercase}
+.eval-stat.good{color:var(--green-d)} .eval-stat.flawed{color:var(--red)} .eval-stat.mixed{color:var(--amber)}
+.eval-fails{display:flex;flex-direction:column;gap:5px;margin-top:5px}
+.eval-fail{display:grid;grid-template-columns:minmax(120px,1.1fr) 2fr auto;align-items:center;column-gap:12px}
+.ef-label{font-size:12.5px;color:var(--txt)}
+.ef-bar{height:7px;background:var(--line2);border-radius:4px;overflow:hidden}
+.ef-bar i{display:block;height:100%;background:var(--red);border-radius:4px}
+.ef-n{font-family:var(--mono);font-size:12px;color:var(--muted);text-align:right}
+
+.eval-filter{display:flex;gap:6px;margin:10px 0}
+.eval-filter button{font-size:12px;padding:4px 11px;border:1px solid var(--line2);background:var(--card);border-radius:99px;cursor:pointer;color:var(--muted)}
+.eval-filter button.on{background:var(--brain);color:#fff;border-color:var(--brain)}
+
+.eval-list{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+.eval-item{border-bottom:1px solid var(--line2)}
+.eval-item:last-child{border-bottom:0}
+.eval-row{display:grid;grid-template-columns:14px auto 1fr auto auto;align-items:center;column-gap:12px;padding:11px 14px;cursor:pointer}
+.eval-row:hover{background:var(--line2)}
+.eval-caret{color:var(--faint);font-size:10px;width:10px}
+.eval-tk{font-weight:660;font-size:14px}
+.eval-kind{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.eval-when{font-size:11px;color:var(--faint);font-family:var(--mono)}
+.eval-verdict-tag{font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;padding:2px 7px;border-radius:5px}
+.eval-verdict-tag.good{color:var(--green-d);background:#e9f6ee} .eval-verdict-tag.flawed{color:var(--red);background:#fcecec} .eval-verdict-tag.mixed{color:var(--amber);background:#fbf3e3}
+.eval-unlabeled{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);border:1px dashed var(--line2);border-radius:5px;padding:2px 7px}
+.eval-detail{padding:6px 16px 16px 38px;background:#fafafb}
+
+/* trace body */
+.tb{margin-bottom:12px}
+.tb-lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;margin:10px 0 3px}
+.tb p{margin:0 0 4px;font-size:13.5px;line-height:1.5}
+.tb-call{margin-top:4px;font-size:12px;color:var(--muted)}
+.tb-brief p{font-size:12.5px;color:var(--muted);line-height:1.55}
+
+/* label form */
+.eval-form{border-top:1px solid var(--line2);padding-top:12px}
+.ef-verdict{display:flex;gap:8px;margin-bottom:6px}
+.vr{font-size:12.5px;padding:4px 12px;border:1px solid var(--line2);border-radius:99px;cursor:pointer;text-transform:capitalize;color:var(--muted)}
+.vr input{display:none}
+.vr.on.good{background:#e9f6ee;border-color:#bfe3cb;color:var(--green-d)}
+.vr.on.mixed{background:#fbf3e3;border-color:#ecdfc2;color:var(--amber)}
+.vr.on.flawed{background:#fcecec;border-color:#f0cccc;color:var(--red)}
+.ef-modes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.fm{font-size:12px;padding:4px 10px;border:1px solid var(--line2);border-radius:7px;cursor:pointer;color:var(--muted);background:var(--card)}
+.fm input{display:none}
+.fm.on{background:#fcecec;border-color:#f0cccc;color:var(--red);font-weight:560}
+.ef-custom,.ef-note{width:100%;box-sizing:border-box;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;margin-bottom:8px;background:var(--card)}
+.ef-note{min-height:54px;resize:vertical}
+
 @media(max-width:820px){ .sc-cuts{grid-template-columns:1fr;gap:6px} }
 
 /* strategy missions (Memory tab) */

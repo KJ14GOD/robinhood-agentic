@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Signal · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=55" />
+<link rel="stylesheet" href="/static/style.css?v=56" />
 </head>
 <body>
 <div id="app">
@@ -32,6 +32,7 @@
     <button class="tab" data-tab="portfolio">Portfolio</button>
     <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="shadow">Scorecard</button>
+    <button class="tab" data-tab="evals">Evals</button>
     <button class="tab" data-tab="profile">Settings</button>
   </nav>
 
@@ -240,6 +241,24 @@
       </tr></thead><tbody id="scoreRows"></tbody></table>
     </section>
 
+    <!-- EVALS: error analysis on the brain's own reasoning -->
+    <section id="evals" class="panel">
+      <div class="row between"><h2>Evals</h2><button class="ghost" id="evalRefresh">Refresh</button></div>
+      <p class="sub">The Scorecard measures market outcome. This measures whether the brain <em>did the job well</em> — grounded, sourced, falsifiable. Read a real trace, tag what failed; the failure modes accrue into your own eval suite (the moat a generic benchmark can't give you).</p>
+
+      <div class="eval-suite" id="evalSuite"></div>
+
+      <div class="section-head" style="margin-top:20px"><h3>Traces to review</h3></div>
+      <p class="sc-cap">The brain's recent reasoning products — analyst calls, re-judgements, deep dives. Open one, judge it, tag the failure modes.</p>
+      <div class="eval-filter" id="evalFilter">
+        <button class="on" data-k="">All</button>
+        <button data-k="analyst">Analyst</button>
+        <button data-k="rejudge">Re-judge</button>
+        <button data-k="deep_research">Deep research</button>
+      </div>
+      <div class="eval-list" id="evalList"></div>
+    </section>
+
     <!-- SETTINGS -->
     <section id="profile" class="panel">
       <div class="row between"><h2>Settings</h2><button class="ghost" id="learnBtn">↻ Learn from holdings</button></div>
@@ -253,6 +272,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=55"></script>
+<script src="/static/app.js?v=56"></script>
 </body>
 </html>

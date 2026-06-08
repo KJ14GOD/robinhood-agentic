@@ -72,7 +72,9 @@ on why it fits (or how to size it to fit) their personality. Be honest about con
                 answer=brief,
                 kind="analyst",
                 steps=[{"type": "analyst", "ticker": ticker, "sources": sources,
-                        "action": ticket.action, "label": ticket.decision_label}],
+                        "action": ticket.action, "label": ticket.decision_label,
+                        "conviction": ticket.conviction, "thesis": ticket.thesis,
+                        "catalyst": ticket.catalyst, "risks": ticket.risks}],
                 tools_used="web_search", model=llm.MODEL,
             )
             db_repo.record_evidence(ticker, sources, kind="web", engine="analyst")

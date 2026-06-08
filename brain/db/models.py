@@ -205,6 +205,25 @@ class AgentRunRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class EvalLabelRecord(Base):
+    """A human error-analysis label on one brain trace (an agent_run). This is the raw
+    material of the eval suite: reading real outputs and writing down what failed builds
+    a domain-specific failure taxonomy that generic benchmarks can't capture. One label
+    per run (upsert by run_id) — the latest judgement wins."""
+
+    __tablename__ = "eval_labels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(40), index=True)   # the agent_run being judged
+    kind: Mapped[str] = mapped_column(String(40), default="", index=True)   # analyst | rejudge | deep_research...
+    ticker: Mapped[str] = mapped_column(String(20), default="", index=True)
+    verdict: Mapped[str] = mapped_column(String(20), default="", index=True)  # good | mixed | flawed
+    failure_modes_json: Mapped[str] = mapped_column(Text, default="[]")       # taxonomy tags
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class MissionRecord(Base):
     """A standing research mission. The brain keeps its roster of candidates
     current and re-labels them on a gated cadence, reporting changes on its own."""
