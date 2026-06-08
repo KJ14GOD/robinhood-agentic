@@ -1186,15 +1186,25 @@ async function loadScore(refresh = false) {
   // by alpha. Mission rows deep-link to the Memory tab so you can lean into a winner.
   const themes = c.themes || [];
   $("#scoreThemes").innerHTML = themes.length
-    ? themes.map((t) => {
+    ? themes.map((t, i) => {
         const isMission = t.kind === "mission";
-        const click = isMission
-          ? ` onclick="document.querySelector('.tab[data-tab=memory]').click()" title="Open this mission in Memory"` : "";
-        return `<div class="theme-row${isMission ? " mission" : ""}${t.graded ? "" : " provisional"}"${click}>
-          <span class="theme-name">${esc(t.theme)}<span class="theme-kind ${isMission ? "" : "sector"}">${isMission ? "mission" : "sector"}</span></span>
-          <span class="theme-alpha ${cls(t.avg_alpha_pct)}">${pct(t.avg_alpha_pct)}<em>vs SPY</em></span>
-          <span class="theme-beat">${t.beat_rate}%<em>beat</em></span>
-          <span class="theme-calls">${t.calls} call${t.calls === 1 ? "" : "s"}${t.graded ? "" : " · forming"}</span>
+        const stocks = (t.stocks || []).map((s) => `
+          <div class="theme-stock">
+            <span class="ts-tk" onclick="event.stopPropagation();analyze('${s.ticker}')">${s.ticker}</span>
+            <span class="ts-src">${esc(titleCase(s.source))}${s.mature ? "" : " · forming"}</span>
+            <span class="ts-alpha ${s.alpha_pct == null ? "muted" : cls(s.alpha_pct)}">${s.alpha_pct == null ? "—" : pct(s.alpha_pct)}<em>vs SPY</em></span>
+          </div>`).join("");
+        const missionLink = isMission
+          ? `<button class="theme-open" onclick="event.stopPropagation();document.querySelector('.tab[data-tab=memory]').click()">open mission in Memory →</button>`
+          : `<p class="theme-hint">Auto-grouped by sector (not in a mission). Start a mission to track this theme.</p>`;
+        return `<div class="theme-block">
+          <div class="theme-row${t.graded ? "" : " provisional"}" onclick="toggleTheme(${i})">
+            <span class="theme-name"><span class="theme-caret" id="themeCaret${i}">▸</span>${esc(t.theme)}<span class="theme-kind ${isMission ? "" : "sector"}">${isMission ? "mission" : "sector"}</span></span>
+            <span class="theme-alpha ${cls(t.avg_alpha_pct)}">${pct(t.avg_alpha_pct)}<em>vs SPY</em></span>
+            <span class="theme-beat">${t.beat_rate}%<em>beat</em></span>
+            <span class="theme-calls">${t.calls} call${t.calls === 1 ? "" : "s"}${t.graded ? "" : " · forming"}</span>
+          </div>
+          <div class="theme-detail" id="themeDetail${i}" hidden>${stocks}${missionLink}</div>
         </div>`;
       }).join("")
     : `<p class="sc-locked-note">No themes yet — log some calls and they'll group by your missions here.</p>`;
@@ -1223,6 +1233,13 @@ async function reconcileDup(tradeId, ticker) {
   loadScore(true);  // re-fetch with fresh marks + prices
 }
 window.reconcileDup = reconcileDup;
+function toggleTheme(i) {
+  const d = $("#themeDetail" + i), caret = $("#themeCaret" + i);
+  if (!d) return;
+  d.hidden = !d.hidden;
+  if (caret) caret.textContent = d.hidden ? "▸" : "▾";
+}
+window.toggleTheme = toggleTheme;
 $("#runScore").onclick = () => loadScore(true);
 
 // ---------- structural risk (portfolio tab) ----------

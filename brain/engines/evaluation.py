@@ -118,12 +118,20 @@ def _theme_signal(trades: list[ShadowTrade]) -> list[dict]:
     for theme, g in groups.items():
         mature_t = [t for t in g["trades"] if _age_days(t) >= MATURE_DAYS]
         graded = len(mature_t) >= 1
-        a = _agg(mature_t if graded else g["trades"])
+        use = mature_t if graded else g["trades"]
+        a = _agg(use)
+        # the actual stocks behind the number, so the row can expand to show them
+        stocks = sorted(
+            [{"ticker": t.ticker, "source": t.source,
+              "alpha_pct": round(t.alpha_pct(), 2) if t.has_benchmark() else None,
+              "return_pct": round(t.return_pct(), 2),
+              "mature": _age_days(t) >= MATURE_DAYS} for t in use],
+            key=lambda s: (s["alpha_pct"] is None, -(s["alpha_pct"] if s["alpha_pct"] is not None else -1e9)))
         rows.append({
             "theme": theme, "kind": g["kind"],
             "calls": a["count"], "matured": len(mature_t), "graded": graded,
             "avg_alpha_pct": a["avg_alpha_pct"], "beat_rate": a["beat_bench_rate"],
-            "avg_return_pct": a["avg_return_pct"],
+            "avg_return_pct": a["avg_return_pct"], "stocks": stocks,
         })
     # graded themes first, then strongest alpha; thin single-call themes sink naturally
     rows.sort(key=lambda r: (r["graded"], r["avg_alpha_pct"]), reverse=True)
