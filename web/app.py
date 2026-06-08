@@ -118,6 +118,10 @@ class EvalLabelBody(BaseModel):
     note: str = ""
 
 
+class MandateBody(BaseModel):
+    statement: str = ""
+
+
 # ----- API ----- #
 def _state(pf=None):
     pf = pf or brain.portfolio()
@@ -289,6 +293,24 @@ def shadow_reconcile(body: ReconcileBody):
     return brain.reconcile_duplicate(body.trade_id, body.mode)
 
 
+@app.get("/api/mandate")
+def mandate_get():
+    """The standing mandate + the cached advisor plan (no LLM spend unless reviewed)."""
+    return {"mandate": brain.get_mandate(), "review": brain.mandate_review(force=False)}
+
+
+@app.post("/api/mandate")
+def mandate_set(body: MandateBody):
+    """Set/replace the user's goal (the brain reads it back + structures it)."""
+    return {"mandate": brain.set_mandate(body.statement)}
+
+
+@app.post("/api/mandate/review")
+def mandate_review():
+    """Generate the plain-language advisor read of the portfolio against the mandate."""
+    return {"review": brain.mandate_review(force=True)}
+
+
 @app.get("/api/evals")
 def evals_overview(limit: int = Query(30, ge=1, le=100), kind: str | None = None):
     """The eval worklist + the emerging suite: reviewable traces (with any label) plus the
@@ -415,6 +437,12 @@ async def _brain_loop() -> None:
             await asyncio.to_thread(brain.run_structural_risk)
         except Exception as e:  # noqa: BLE001
             logger.warning("structural risk failed: %s", e)
+        # Proactive mandate plan: re-read the book against the user's goal on its cadence and
+        # ping a fresh plan — the agent coming to you. Gated to once/period, no-op without a mandate.
+        try:
+            await asyncio.to_thread(brain.run_mandate_review)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("mandate review failed: %s", e)
         # Pre-warm the curated findings feed so it's ready when the user opens the tab.
         try:
             await asyncio.to_thread(brain.prewarm_feed)

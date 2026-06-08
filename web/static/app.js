@@ -107,6 +107,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
   if (t.dataset.tab === "shadow" && STATE) loadScore(true);
   if (t.dataset.tab === "evals" && STATE) loadEvals();
+  if (t.dataset.tab === "brain" && STATE) loadMandate();
 }));
 
 // ---------- state / header ----------
@@ -122,7 +123,8 @@ function renderState() {
   const n = STATE.portfolio.holdings.length;
   const stamp = localTime(STATE.as_of || STATE.portfolio.as_of);
   const sync = STATE.sync_ok ? `updated ${stamp || "now"}` : `sync issue`;
-  $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · buying power ${money0(STATE.portfolio.buying_power ?? STATE.portfolio.cash)} · ${sync}`;
+  // Show actual cash to deploy, not broker "buying power" (which can include margin/Instant credit — borrowed money, misleading on an investing tool).
+  $("#totMeta").textContent = `${n} position${n === 1 ? "" : "s"} · cash ${money0(STATE.portfolio.cash ?? 0)} · ${sync}`;
   renderStaleBanner();
   if (!STATE.sync_ok && STATE.sync_message) toast(STATE.sync_message);
   else if (STATE.portfolio.pricing_warning) console.warn(STATE.portfolio.pricing_warning);
@@ -858,7 +860,7 @@ let ACT_EVENTS = [];
 
 function actKind(e) {
   return JUDGEMENT_TYPES.has(e.event_type) || e.source === "memory" || e.source === "analyze"
-    || e.source === "autoresearch"
+    || e.source === "autoresearch" || e.source === "mandate"
     ? "judgement" : "signal";
 }
 function actTime(iso) {
@@ -939,6 +941,94 @@ $$("#actFilter button").forEach((b) => b.addEventListener("click", () => {
   ACT_FILTER = b.dataset.f;
   renderActivity();
 }));
+
+// ---------- mandate (the standing goal — the cockpit) ----------
+let MANDATE = null, MANDATE_REVIEW = null;
+
+async function loadMandate() {
+  const box = $("#mandateCard");
+  if (!box) return;
+  let d;
+  try { d = await api("mandate"); } catch (e) { box.innerHTML = ""; return; }
+  MANDATE = d.mandate || {};
+  MANDATE_REVIEW = d.review || null;
+  renderMandate(false);
+}
+
+function renderMandate(editing) {
+  const box = $("#mandateCard");
+  if (!box) return;
+  const m = MANDATE || {};
+  if (editing || !m.statement) {
+    box.innerHTML = `<div class="mandate-set">
+        <span class="mandate-kicker">${m.statement ? "Edit your plan" : "Set your plan"}</span>
+        <p class="mandate-prompt">What are you trying to do? Tell me in plain words — horizon, risk, style, anything to favor or avoid. Every recommendation will align to it.</p>
+        <textarea id="mandateInput" class="mandate-input" placeholder="e.g. long-term holds I can keep for a year+, steady growth, moderate risk, nothing too speculative">${esc(m.statement || "")}</textarea>
+        <div class="row" style="gap:8px">
+          <button class="primary" id="mandateSave">${m.statement ? "Update plan" : "Set my plan"}</button>
+          ${m.statement ? `<button class="ghost" id="mandateCancel">Cancel</button>` : ""}
+        </div>
+      </div>`;
+    $("#mandateSave").onclick = saveMandate;
+    const c = $("#mandateCancel"); if (c) c.onclick = () => renderMandate(false);
+    return;
+  }
+  const tag = (label, val) => val ? `<span class="mandate-tag"><em>${label}</em>${esc(val)}</span>` : "";
+  const list = (label, arr) => (arr && arr.length) ? `<span class="mandate-tag"><em>${label}</em>${arr.map(esc).join(", ")}</span>` : "";
+  box.innerHTML = `<div class="mandate-head">
+      <span class="mandate-kicker">Your plan</span>
+      <button class="linklike" id="mandateEdit">edit</button>
+    </div>
+    <p class="mandate-statement">${esc(m.summary || m.statement)}</p>
+    <div class="mandate-tags">${tag("horizon", m.horizon)}${tag("risk", m.risk)}${tag("style", m.style)}${list("favor", m.favor)}${list("avoid", m.avoid)}</div>
+    <div class="mandate-plan" id="mandatePlan">${planHTML(MANDATE_REVIEW)}</div>`;
+  $("#mandateEdit").onclick = () => renderMandate(true);
+  wirePlanBtns();
+}
+
+function planHTML(r) {
+  if (!r) return `<button class="ghost mandate-review-btn" id="mandateReview">Review my plan →</button>`;
+  const moves = (r.moves || []).map((mv) => `
+    <div class="plan-move">
+      <span class="pm-tk" onclick="analyze('${mv.ticker}')">${esc(mv.ticker)}</span>
+      <span class="pill ${mv.action}">${esc(mv.action)}</span>
+      <span class="pm-why">${esc(mv.reason)}</span>
+    </div>`).join("");
+  return `<div class="plan-head"><span class="plan-kicker">Where you stand vs your plan</span><button class="linklike" id="mandateReview">refresh</button></div>
+    <p class="plan-align">${esc(r.alignment)}</p>
+    ${moves ? `<span class="plan-lbl">Moves to consider</span>${moves}` : `<p class="plan-fit">Nothing to change right now — the book fits your plan.</p>`}
+    ${r.note ? `<p class="plan-note">${esc(r.note)}</p>` : ""}`;
+}
+
+function wirePlanBtns() {
+  const rb = $("#mandateReview"); if (rb) rb.onclick = reviewMandate;
+}
+
+async function saveMandate() {
+  const t = ($("#mandateInput") || {}).value || "";
+  if (!t.trim()) { toast("Tell me your goal first"); return; }
+  const btn = $("#mandateSave"); busy(btn, true);
+  try {
+    const d = await api("mandate", { statement: t });
+    MANDATE = d.mandate; MANDATE_REVIEW = null;
+    renderMandate(false);
+    toast("Plan set — recommendations now align to it");
+    reviewMandate();
+  } catch (e) { toast("Could not save plan"); }
+  busy(btn, false);
+}
+
+async function reviewMandate() {
+  const plan = $("#mandatePlan");
+  if (plan) plan.innerHTML = `<div class="loading"><span class="spin"></span> Reading your portfolio against your plan…</div>`;
+  try {
+    const d = await api("mandate/review", {});
+    MANDATE_REVIEW = d.review;
+  } catch (e) { MANDATE_REVIEW = null; }
+  if (plan) plan.innerHTML = planHTML(MANDATE_REVIEW);
+  wirePlanBtns();
+}
+window.reviewMandate = reviewMandate;
 
 // ---------- findings feed ----------
 async function loadFeed() {
@@ -1674,6 +1764,7 @@ function maybeNotify(prevEvents) {
 
 // ---------- boot ----------
 loadState().then(() => {
+  loadMandate();
   loadScore();
   loadPings();
   setTimeout(() => refreshLive({ quiet: true }), 250);

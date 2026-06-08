@@ -205,6 +205,23 @@ class AgentRunRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class MandateRecord(Base):
+    """The user's standing investing mandate (single row). Stored in the DB so it persists
+    in production like everything else — it's the agent's standing instruction."""
+
+    __tablename__ = "mandates"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="default")
+    statement: Mapped[str] = mapped_column(Text, default="")
+    horizon: Mapped[str] = mapped_column(String(60), default="")
+    risk: Mapped[str] = mapped_column(String(60), default="")
+    style: Mapped[str] = mapped_column(String(60), default="")
+    favor_json: Mapped[str] = mapped_column(Text, default="[]")
+    avoid_json: Mapped[str] = mapped_column(Text, default="[]")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class EvalLabelRecord(Base):
     """A human error-analysis label on one brain trace (an agent_run). This is the raw
     material of the eval suite: reading real outputs and writing down what failed builds

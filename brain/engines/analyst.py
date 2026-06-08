@@ -43,7 +43,12 @@ enough) — e.g. lopsided bullishness after a big run is a crowded long / contra
 a mention spike flags a catalyst or a pump to check. Treat it as crowd positioning, never as
 fact, and only mention it when it actually bears on the call. Don't force it.""" if social else "")
 
+    from .. import mandate
+    mandate_block = mandate.mandate_prompt()
+
     prompt = f"""Produce a recommendation for {ticker} for this investor.
+
+{mandate_block}
 
 INVESTOR PROFILE:
 {profile.describe()}
@@ -57,9 +62,9 @@ QUANTITATIVE SIGNALS (grounded — reason from these, don't invent):
 {social_guidance}
 
 Decide the right action (buy / add / hold / trim / sell / watch) for THIS investor given
-their risk profile. Give a falsifiable thesis, the concrete catalyst and rough timing,
-the risks that would break it, a suggested position size as % of portfolio, and one line
-on why it fits (or how to size it to fit) their personality. Be honest about conviction."""
+their risk profile{' and especially their mandate above' if mandate_block else ''}. Give a falsifiable thesis, the concrete
+catalyst and rough timing, the risks that would break it, a suggested position size as % of
+portfolio, and one line on why it fits (or how to size it to fit) their goal. Be honest about conviction."""
 
     ticket = llm.parse(prompt, TradeTicket, max_tokens=2500)
     ticket.ticker = ticker

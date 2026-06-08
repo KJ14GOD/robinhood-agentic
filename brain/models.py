@@ -473,3 +473,61 @@ class DeepResearchCritique(BaseModel):
     final_action: Action
     final_conviction: int = Field(ge=1, le=10)
     note: str = Field(description="One line on the final stance after self-criticism.")
+
+
+# --- mandate (the user's stated investing goal — the agent's standing instruction) --- #
+class Mandate(BaseModel):
+    """What the user is actually trying to do, in their own words — the standing goal the
+    agent works toward. Richer than the risk profile: a strategy, not just parameters. The
+    brain extracts the structured fields so it can reason with them; the statement is the
+    source of truth."""
+    statement: str = ""                  # the user's words, verbatim
+    horizon: str = ""                    # e.g. "1+ year", "long-term", "swing"
+    risk: str = ""                       # e.g. "conservative", "moderate", "aggressive"
+    style: str = ""                      # e.g. "growth", "value", "dividend", "momentum"
+    favor: list[str] = Field(default_factory=list)   # themes/sectors to lean into
+    avoid: list[str] = Field(default_factory=list)    # to steer clear of
+    summary: str = ""                    # the brain's one-line read-back of the goal
+    updated_at: str = Field(default_factory=_now)
+
+    def is_set(self) -> bool:
+        return bool(self.statement.strip())
+
+    def describe(self) -> str:
+        """Prompt block — the standing instruction every recommendation aligns to."""
+        if not self.is_set():
+            return ""
+        parts = [f"USER'S MANDATE (their stated goal — align every call to it): {self.statement.strip()}"]
+        bits = []
+        if self.horizon: bits.append(f"horizon {self.horizon}")
+        if self.risk: bits.append(f"risk {self.risk}")
+        if self.style: bits.append(f"style {self.style}")
+        if bits: parts.append("(" + "; ".join(bits) + ")")
+        if self.favor: parts.append(f"Favor: {', '.join(self.favor)}.")
+        if self.avoid: parts.append(f"Avoid: {', '.join(self.avoid)}.")
+        return " ".join(parts)
+
+
+class MandateExtract(BaseModel):
+    """Structured reading of a free-text mandate (the LLM's parse of the user's words)."""
+    horizon: str = Field(description="Investing time horizon implied, e.g. '1+ year', 'long-term', 'short-term swing'. Empty if unclear.")
+    risk: str = Field(description="Risk tolerance implied: conservative / moderate / aggressive. Empty if unclear.")
+    style: str = Field(description="Investing style implied: growth / value / dividend / momentum / index / mixed. Empty if unclear.")
+    favor: list[str] = Field(default_factory=list, description="Sectors, themes, or kinds of names to lean into. Empty if none stated.")
+    avoid: list[str] = Field(default_factory=list, description="Sectors, themes, or kinds of names to steer clear of. Empty if none stated.")
+    summary: str = Field(description="One plain-language sentence confirming the goal back to the user, in your words.")
+
+
+class PlanMove(BaseModel):
+    """One concrete, mandate-aligned action the agent suggests."""
+    ticker: str
+    action: Action
+    reason: str = Field(description="Why this move serves the mandate — one grounded sentence.")
+
+
+class PlanReview(BaseModel):
+    """The agentic advisor read: how the portfolio stands against the mandate, and the few
+    moves that would serve it. Plain language, decision-useful, never more than a handful."""
+    alignment: str = Field(description="One or two sentences: how well the current portfolio fits the mandate right now.")
+    moves: list[PlanMove] = Field(default_factory=list, description="1-3 concrete moves that would better serve the mandate. Empty if nothing to do.")
+    note: str = Field(default="", description="Optional one-line closing thought or watch-item.")

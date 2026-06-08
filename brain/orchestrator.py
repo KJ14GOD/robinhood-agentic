@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from typing import Iterator
 
-from . import agent, llm, profile_store, research_state, shadow
+from . import agent, llm, mandate as _mandate, profile_store, research_state, shadow
 from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
@@ -473,6 +473,62 @@ def eval_summary() -> dict:
     for row in s.get("failure_counts", []):
         row["label"] = evals.pretty(row["tag"])
     return s
+
+
+# --- mandate (the standing goal — the agentic cockpit) ---------------------- #
+_MANDATE_REVIEW: dict = {"sig": None, "review": None}
+
+
+def get_mandate() -> dict:
+    return _mandate.get_mandate().model_dump()
+
+
+def set_mandate(text: str) -> dict:
+    m = _mandate.set_mandate(text)
+    _MANDATE_REVIEW["sig"] = None   # a new goal invalidates the cached plan
+    return m.model_dump()
+
+
+def mandate_review(force: bool = False) -> dict | None:
+    """The advisor read of the portfolio against the mandate. Cached on (mandate + holdings)
+    so it only re-spends when the goal or the book actually changes."""
+    m = _mandate.get_mandate()
+    if not m.is_set():
+        return None
+    pf = get_portfolio()
+    sig = (m.updated_at, _risk_signature(pf))
+    if not force and _MANDATE_REVIEW["review"] is not None and _MANDATE_REVIEW["sig"] == sig:
+        return _MANDATE_REVIEW["review"]
+    review = _mandate.review(pf, get_profile())
+    out = review.model_dump() if review else None
+    _MANDATE_REVIEW.update(sig=sig, review=out)
+    return out
+
+
+def run_mandate_review() -> bool:
+    """Proactive plan: on the mandate cadence, re-read the portfolio against the mandate and
+    drop a plan into the ping rail — the agent coming to you, unprompted. Gated by a cooldown
+    event so it fires at most once per period; a no-op when no mandate is set. One LLM call."""
+    m = _mandate.get_mandate()
+    if not m.is_set():
+        return False
+    if db_repo.event_exists_recent("mandate_plan", "", within_hours=config.MANDATE_REVIEW_DAYS * 24):
+        return False
+    review = mandate_review(force=True)   # fresh read, also warms the card cache
+    if not review:
+        return False
+    moves = review.get("moves") or []
+    align = (review.get("alignment") or "").strip()
+    if moves:
+        movetxt = "; ".join(f"{mv['ticker']} {mv['action']}" for mv in moves[:3])
+        title = f"Your plan — {len(moves)} move{'s' if len(moves) != 1 else ''} to consider"
+        summary = f"{align} → {movetxt}."
+    else:
+        title = "Your plan — on track"
+        summary = align or "Your portfolio still fits your mandate; nothing to change."
+    db_repo.save_research_event(event_type="mandate_plan", ticker="", severity="warn",
+                                title=title, summary=summary[:300], source="mandate")
+    return True
 
 
 # --- strategy missions ------------------------------------------------------ #

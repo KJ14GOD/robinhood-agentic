@@ -29,6 +29,9 @@ AUTO_REFRESH_SECONDS = int(os.environ.get("AUTO_REFRESH_SECONDS", "120"))
 # Cadence ceiling for the heavy LLM brain loop (decoupled from the fast price refresh
 # so a long deep dive can't stall live data). The engines self-gate; this is just a floor.
 BRAIN_LOOP_SECONDS = int(os.environ.get("BRAIN_LOOP_SECONDS", "180"))
+# How often the agent proactively re-reads your portfolio against your mandate and pings
+# you a fresh plan (the "comes to you" cadence). One LLM call per period.
+MANDATE_REVIEW_DAYS = int(os.environ.get("MANDATE_REVIEW_DAYS", "7"))
 AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true", "yes", "on"}
 # Autonomous deep research: let the brain run unprompted deep dives on high-signal triggers
 # (a thesis breaking/under review, a mission name promoted to BUY) and drop the report into the

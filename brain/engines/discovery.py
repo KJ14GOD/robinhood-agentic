@@ -56,7 +56,12 @@ def discover(profile: RiskProfile, flavor: str = "any", top_n: int = 5,
     enriched = [enriched_map.get(r.ticker) for r in shortlist]
     rows_txt = "\n".join(f"- {s.as_prompt()}" for s in enriched if s and s.price > 0)
 
+    from .. import mandate
+    mandate_block = mandate.mandate_prompt()
+
     prompt = f"""From the screened candidates below, pick the {top_n} most compelling ideas for this investor.
+
+{mandate_block}
 
 INVESTOR PROFILE:
 {profile.describe()}
@@ -67,9 +72,8 @@ SCREENED CANDIDATES (top of a {len(universe)}-stock momentum/trend screen — gr
 {rows_txt}
 
 For each pick: the hook (why it's interesting now), a one-line summary of what the screen
-flagged, a stable/moderate/volatile tag, and honest conviction (1-10). Favor ideas that
-genuinely fit this person and that they likely wouldn't have surfaced themselves.
-Return at most {top_n}."""
+flagged, a stable/moderate/volatile tag, and honest conviction (1-10). {'Favor ideas that serve the mandate above and ' if mandate_block else 'Favor ideas that '}genuinely fit this
+person and that they likely wouldn't have surfaced themselves. Return at most {top_n}."""
 
     result = llm.parse(prompt, DiscoveryResult, max_tokens=3000)
     result.ideas = result.ideas[:top_n]

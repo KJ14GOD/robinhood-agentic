@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import desc, func, select
 
 from ..models import (
-    Briefing, Holding, Mission, MissionCandidate, Portfolio, ResearchState,
+    Briefing, Holding, Mandate, Mission, MissionCandidate, Portfolio, ResearchState,
     ShadowTrade, Thesis, WatchItem,
 )
 from .models import (
@@ -15,6 +15,7 @@ from .models import (
     BriefingRecord,
     EvalLabelRecord,
     EvidenceItemRecord,
+    MandateRecord,
     MissionCandidateRecord,
     MissionRecord,
     PortfolioSnapshot,
@@ -623,6 +624,46 @@ def recent_agent_runs(limit: int = 20, kind: str | None = None) -> list[dict]:
             ]
     except Exception:
         return []
+
+
+# --- mandate (the user's standing goal) ------------------------------------- #
+def load_mandate() -> Mandate:
+    if not _ensure_ready():
+        return Mandate()
+    try:
+        with db_session() as session:
+            row = session.get(MandateRecord, "default")
+            if not row:
+                return Mandate()
+            return Mandate(
+                statement=row.statement, horizon=row.horizon, risk=row.risk, style=row.style,
+                favor=json.loads(row.favor_json or "[]"), avoid=json.loads(row.avoid_json or "[]"),
+                summary=row.summary,
+                updated_at=row.updated_at.isoformat() if row.updated_at else "",
+            )
+    except Exception:
+        return Mandate()
+
+
+def save_mandate(m: Mandate) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            row = session.get(MandateRecord, "default")
+            if not row:
+                row = MandateRecord(id="default")
+                session.add(row)
+            row.statement = m.statement
+            row.horizon = m.horizon
+            row.risk = m.risk
+            row.style = m.style
+            row.favor_json = json.dumps(m.favor or [])
+            row.avoid_json = json.dumps(m.avoid or [])
+            row.summary = m.summary
+            row.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        return
 
 
 # --- eval labels (error analysis on brain traces) --------------------------- #

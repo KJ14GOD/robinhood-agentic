@@ -456,6 +456,15 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
     # training-era assumption of an earlier year. Goes in the message, not the cached system block.
     messages.append({"role": "user", "content": f"{llm.today_line()}\n\n{message}"})
 
+    # The user's standing mandate is the lens for the whole conversation. Kept in its own
+    # (uncached) system block since it changes independently of the big cached prompt.
+    from . import mandate as _mandate
+    _mblock = _mandate.mandate_prompt()
+    system = [{"type": "text", "text": AGENT_SYSTEM, "cache_control": {"type": "ephemeral"}}]
+    if _mblock:
+        system.append({"type": "text", "text": _mblock + "\n\nKeep this mandate front of mind; "
+                       "align ideas, recommendations, and what you surface to it."})
+
     # Accumulate a compact, faithful trace so the whole loop is persisted to
     # agent_runs as an audit trail (what the brain looked at, and why it answered).
     trace: list[dict] = []
@@ -480,7 +489,7 @@ def run_stream(message: str, history: list[dict] | None = None) -> Iterator[dict
         resp = client.messages.create(
             model=llm.MODEL,
             max_tokens=4000,
-            system=[{"type": "text", "text": AGENT_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            system=system,
             thinking={"type": "adaptive"},
             output_config={"effort": llm.EFFORT},
             tools=TOOLS,
