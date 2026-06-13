@@ -107,7 +107,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
   if (t.dataset.tab === "shadow" && STATE) loadScore(true);
   if (t.dataset.tab === "evals" && STATE) loadEvals();
-  if (t.dataset.tab === "brain" && STATE) loadMandate();
+  if (t.dataset.tab === "home" && STATE) { loadMandate(); renderHome(); }
 }));
 
 // ---------- state / header ----------
@@ -128,9 +128,8 @@ function renderState() {
   renderStaleBanner();
   if (!STATE.sync_ok && STATE.sync_message) toast(STATE.sync_message);
   else if (STATE.portfolio.pricing_warning) console.warn(STATE.portfolio.pricing_warning);
-  renderToday();
+  renderHome();
   renderHoldings(); renderAllocation(); renderProfile(); renderEditor();
-  renderBriefings((STATE.research || {}).briefings || []);
   if ($("#portfolio").classList.contains("active")) loadPortfolioChart();
   if ($("#memory").classList.contains("active")) renderMemory();
 }
@@ -168,26 +167,7 @@ $("#refreshAll").onclick = async (e) => {
   toast(STATE.sync_ok ? "Live data refreshed" : "Refresh had a sync issue");
 };
 
-function renderToday() {
-  if (!STATE) return;
-  const hs = STATE.portfolio.holdings || [];
-  const weights = hs.map((h) => h.weight || 0);
-  const maxWeight = Math.max(0, ...weights);
-  const top = hs.find((h) => (h.weight || 0) === maxWeight);
-  const profileMax = STATE.profile?.max_single_position_pct || 15;
-  const concentration = maxWeight > profileMax ? "Elevated" : maxWeight > profileMax * 0.8 ? "Watch" : "Controlled";
-  const dataState = STATE.sync_ok ? (STATE.portfolio.pricing_warning ? "Approximate" : "Fresh") : "Needs sync";
-  const next = maxWeight > profileMax ? `Review ${top?.ticker || "largest position"}` : "No forced action";
-  const sourceLabel = STATE.portfolio.pricing_source || STATE.source;
-  const caveat = STATE.portfolio.pricing_warning ? "Overnight web value may differ" : "Use chat for a researched decision card";
-  $("#todayLine").textContent = hs.length
-    ? `${concentration} concentration, ${dataState.toLowerCase()} data, ${next}.`
-    : "Add or sync holdings to start the assistant workspace.";
-  $("#todayMetrics").innerHTML = `
-    <div class="signal"><label>Risk</label><strong>${concentration}</strong><span>${top ? `${top.ticker} is ${maxWeight.toFixed(1)}% of portfolio` : "No positions loaded"}</span></div>
-    <div class="signal"><label>Data</label><strong>${dataState}</strong><span>${esc(sourceLabel)}</span></div>
-    <div class="signal"><label>Next</label><strong>${next}</strong><span>${caveat}</span></div>`;
-}
+// (the old Today metrics strip is now the opener message in the Home stream — see openerHTML)
 
 function renderHoldings() {
   const hs = STATE.portfolio.holdings;
@@ -827,31 +807,7 @@ function openRejudge(s) {
 }
 window.openRejudge = openRejudge;
 
-function renderBriefings(items) {
-  const box = $("#briefings");
-  if (!box) return;
-  box.innerHTML = items.length ? items.slice(-4).reverse().map((b) => `
-    <div class="card">
-      <div class="head"><span class="tkr">${esc(b.kind || "briefing")}</span><span class="pill neutral">${esc((b.created_at || "").slice(0, 10))}</span></div>
-      <p><strong>${esc(b.title || "Briefing")}</strong></p>
-      <p>${esc(b.summary || "")}</p>
-      ${(b.bullets || []).slice(0, 5).map((x) => `<p>· ${esc(x)}</p>`).join("")}
-      ${(b.actions || []).length ? `<span class="lbl">Actions</span>${b.actions.map((x) => `<p>${esc(x)}</p>`).join("")}` : ""}
-    </div>`).join("") : `<p class="muted">No briefings yet. Generate one for morning or evening.</p>`;
-}
-
-async function createBriefing(kind, btn) {
-  busy(btn, true);
-  const b = await api("briefing", { kind });
-  STATE.research = STATE.research || {};
-  STATE.research.briefings = [...(STATE.research.briefings || []), b];
-  renderBriefings(STATE.research.briefings);
-  busy(btn, false);
-  toast(`${kind} briefing saved`);
-}
-
-$("#morningBrief").onclick = (e) => createBriefing("morning", e.target);
-$("#eveningBrief").onclick = (e) => createBriefing("evening", e.target);
+// (briefings render as agent messages in the Home stream — see briefMsgHTML / chipBrief)
 
 // ---------- Activity (dense terminal log) ----------
 const JUDGEMENT_TYPES = new Set(["thesis_broken", "thesis_review", "thesis_affirmed", "ticker_research"]);
@@ -942,111 +898,26 @@ $$("#actFilter button").forEach((b) => b.addEventListener("click", () => {
   renderActivity();
 }));
 
-// ---------- mandate (the standing goal — the cockpit) ----------
+// ---------- mandate (the standing goal) ----------
+// No card UI anymore — the plan is set by telling the agent in chat (set_mandate tool)
+// and read back via the opener + the "My plan" chip. This just keeps the data fresh.
 let MANDATE = null, MANDATE_REVIEW = null;
 
 async function loadMandate() {
-  const box = $("#mandateCard");
-  if (!box) return;
-  let d;
-  try { d = await api("mandate"); } catch (e) { box.innerHTML = ""; return; }
-  MANDATE = d.mandate || {};
-  MANDATE_REVIEW = d.review || null;
-  renderMandate(false);
-}
-
-function renderMandate(editing) {
-  const box = $("#mandateCard");
-  if (!box) return;
-  const m = MANDATE || {};
-  if (editing || !m.statement) {
-    box.innerHTML = `<div class="mandate-set">
-        <span class="mandate-kicker">${m.statement ? "Edit your plan" : "Set your plan"}</span>
-        <p class="mandate-prompt">What are you trying to do? Tell me in plain words — horizon, risk, style, anything to favor or avoid. Every recommendation will align to it.</p>
-        <textarea id="mandateInput" class="mandate-input" placeholder="e.g. long-term holds I can keep for a year+, steady growth, moderate risk, nothing too speculative">${esc(m.statement || "")}</textarea>
-        <div class="row" style="gap:8px">
-          <button class="primary" id="mandateSave">${m.statement ? "Update plan" : "Set my plan"}</button>
-          ${m.statement ? `<button class="ghost" id="mandateCancel">Cancel</button>` : ""}
-        </div>
-      </div>`;
-    $("#mandateSave").onclick = saveMandate;
-    const c = $("#mandateCancel"); if (c) c.onclick = () => renderMandate(false);
-    return;
-  }
-  const tag = (label, val) => val ? `<span class="mandate-tag"><em>${label}</em>${esc(val)}</span>` : "";
-  const list = (label, arr) => (arr && arr.length) ? `<span class="mandate-tag"><em>${label}</em>${arr.map(esc).join(", ")}</span>` : "";
-  box.innerHTML = `<div class="mandate-head">
-      <span class="mandate-kicker">Your plan</span>
-      <button class="linklike" id="mandateEdit">edit</button>
-    </div>
-    <p class="mandate-statement">${esc(m.summary || m.statement)}</p>
-    <div class="mandate-tags">${tag("horizon", m.horizon)}${tag("risk", m.risk)}${tag("style", m.style)}${list("favor", m.favor)}${list("avoid", m.avoid)}</div>
-    <div class="mandate-plan" id="mandatePlan">${planHTML(MANDATE_REVIEW)}</div>`;
-  $("#mandateEdit").onclick = () => renderMandate(true);
-  wirePlanBtns();
-}
-
-function planHTML(r) {
-  if (!r) return `<button class="ghost mandate-review-btn" id="mandateReview">Review my plan →</button>`;
-  const moves = (r.moves || []).map((mv) => `
-    <div class="plan-move">
-      <span class="pm-tk" onclick="analyze('${mv.ticker}')">${esc(mv.ticker)}</span>
-      <span class="pill ${mv.action}">${esc(mv.action)}</span>
-      <span class="pm-why">${esc(mv.reason)}</span>
-    </div>`).join("");
-  return `<div class="plan-head"><span class="plan-kicker">Where you stand vs your plan</span><button class="linklike" id="mandateReview">refresh</button></div>
-    <p class="plan-align">${esc(r.alignment)}</p>
-    ${moves ? `<span class="plan-lbl">Moves to consider</span>${moves}` : `<p class="plan-fit">Nothing to change right now — the book fits your plan.</p>`}
-    ${r.note ? `<p class="plan-note">${esc(r.note)}</p>` : ""}`;
-}
-
-function wirePlanBtns() {
-  const rb = $("#mandateReview"); if (rb) rb.onclick = reviewMandate;
-}
-
-async function saveMandate() {
-  const t = ($("#mandateInput") || {}).value || "";
-  if (!t.trim()) { toast("Tell me your goal first"); return; }
-  const btn = $("#mandateSave"); busy(btn, true);
   try {
-    const d = await api("mandate", { statement: t });
-    MANDATE = d.mandate; MANDATE_REVIEW = null;
-    renderMandate(false);
-    toast("Plan set — recommendations now align to it");
-    reviewMandate();
-  } catch (e) { toast("Could not save plan"); }
-  busy(btn, false);
+    const d = await api("mandate");
+    MANDATE = d.mandate || {};
+    MANDATE_REVIEW = d.review || null;
+  } catch (e) {}
+  renderHome();   // the opener reads the mandate state
 }
 
-async function reviewMandate() {
-  const plan = $("#mandatePlan");
-  if (plan) plan.innerHTML = `<div class="loading"><span class="spin"></span> Reading your portfolio against your plan…</div>`;
-  try {
-    const d = await api("mandate/review", {});
-    MANDATE_REVIEW = d.review;
-  } catch (e) { MANDATE_REVIEW = null; }
-  if (plan) plan.innerHTML = planHTML(MANDATE_REVIEW);
-  wirePlanBtns();
-}
-window.reviewMandate = reviewMandate;
-
-// ---------- findings feed ----------
+// ---------- findings (folded into the agent's opener message) ----------
+let FINDINGS = [];
 async function loadFeed() {
-  const box = $("#feed");
-  box.innerHTML = `<div class="loading"><span class="spin"></span> Scanning your portfolio and the market…</div>`;
-  const r = await api("feed");
-  const f = r.findings || [];
-  box.innerHTML = f.length ? f.map((x) => `
-    <div class="finding">
-      <div class="ic ${x.kind || ""}"></div>
-      <div class="body">
-        <div class="ft">${x.ticker ? `<span class="tk" onclick="analyze('${x.ticker}')">${x.ticker}</span> ` : ""}${esc(x.headline)}</div>
-        <div class="fd">${esc(x.detail)}</div>
-      </div>
-      <span class="pill ${x.kind}">${x.kind}</span>
-    </div>`).join("") : `<div class="loading">Nothing pressing right now. Add holdings or ask Signal below.</div>`;
+  try { FINDINGS = (await api("feed")).findings || []; } catch (e) {}
+  renderHome();   // the opener carries the top findings
 }
-$("#refreshFeed").onclick = () => loadFeed();
 
 // ---------- editor ----------
 function editorRow(h = {}) {
@@ -1165,19 +1036,7 @@ function ticketHTML(t) {
 async function fb(t, a) { STATE.profile = await api("feedback", { ticker: t, accepted: a }); renderLearned(); toast(a ? "Learned: you like this" : "Learned: you passed"); closeModal(); }
 window.fb = fb;
 
-// ---------- discover ----------
-$("#runDiscover").onclick = async (e) => {
-  busy(e.target, true);
-  $("#ideas").innerHTML = `<div class="loading"><span class="spin"></span> Screening 500+ stocks and writing theses…</div>`;
-  const r = await api("discover", { flavor: $("#flavor").value, top_n: 5 });
-  $("#ideas").innerHTML = (r.ideas || []).map((i) => `
-    <div class="card"><div class="head"><span class="tkr" onclick="analyze('${i.ticker}')">${i.ticker}</span>
-      <span class="pill ${i.risk_flavor}">${i.risk_flavor}</span></div>
-      <div class="conv">${esc(i.name || "")} · conviction ${i.conviction}/10</div><div class="bar"><i style="width:${i.conviction * 10}%"></i></div>
-      <span class="lbl">Why now</span><p>${esc(i.why_now)}</p>
-      <span class="lbl">Signal</span><p>${esc(i.signal_summary)}</p></div>`).join("") || `<p class="muted">No matches — try another flavor.</p>`;
-  busy(e.target, false);
-};
+// (discovery now runs from the Home composer's "Find ideas" chip — see chipIdeas)
 
 // ---------- shadow (the scorecard) ----------
 const CONV_LABEL = { high: "High · 7–10", medium: "Medium · 4–6", low: "Low · 1–3" };
@@ -1567,45 +1426,290 @@ function chartHTML(chart) {
   </div>`;
 }
 
+// ---------- Home — the chat-first cockpit ----------
+// The stream is one conversation: everything Signal does on its own (plan pings,
+// thesis judgements, briefings, alerts) lands here as agent messages, merged by
+// time with your actual chat. Chat turns persist server-side; chip results and
+// research traces are session-only (regenerable).
+let CHAT_MSGS = [];          // persisted conversation (user + assistant)
+let CHAT_BUSY = false;       // an answer is streaming — don't re-render over it
+let STREAM_STICK = true;     // pinned to the newest message unless the user scrolls up
+const EPHEMERAL = [];        // session-only agent cards (plan reads, idea screens)
+
+async function loadChatHistory() {
+  try { CHAT_MSGS = (await api("chat/history?limit=80")).messages || []; }
+  catch (e) { CHAT_MSGS = []; }
+  // Restore the model's conversational context across reloads (last few turns).
+  CHAT_HISTORY.length = 0;
+  for (const m of CHAT_MSGS.slice(-12)) {
+    CHAT_HISTORY.push({ role: m.role === "user" ? "user" : "assistant", content: m.content });
+  }
+  renderHome();
+}
+
+// Which brain events belong in the conversation: its judgements plus anything it
+// flagged as worth interrupting you for. Raw info-level signals stay in Activity.
+function chatWorthy(e) {
+  return actKind(e) === "judgement" || e.severity === "warn" || e.severity === "alert";
+}
+
+const streamTs = (s) => { const t = new Date(s).getTime(); return Number.isFinite(t) ? t : 0; };
+
+function homeItems() {
+  const items = [];
+  for (const m of CHAT_MSGS) items.push({ at: m.created_at || "", kind: m.role === "user" ? "user" : "assistant", m });
+  for (const e of PING_EVENTS) {
+    if (chatWorthy(e)) items.push({ at: e.created_at || "", kind: "event", e, fresh: (e.id || 0) > PING_SEEN });
+  }
+  for (const b of ((STATE && STATE.research && STATE.research.briefings) || []).slice(-6)) {
+    items.push({ at: b.created_at || "", kind: "brief", b });
+  }
+  for (const x of EPHEMERAL) items.push({ at: x.at, kind: "raw", x });
+  items.sort((a, b) => streamTs(a.at) - streamTs(b.at));
+  return items.slice(-90);
+}
+
+function renderHome() {
+  const box = $("#homeStream");
+  if (!box || CHAT_BUSY) return;
+  const items = homeItems();
+  let html = "", lastDay = null;
+  for (const it of items) {
+    const d = actDay(it.at);
+    if (d !== lastDay) { html += `<div class="stream-day">${esc(d)}</div>`; lastDay = d; }
+    if (it.kind === "user") html += userMsgHTML(it.m.content);
+    else if (it.kind === "assistant") html += botMsgHTML(it.m);
+    else if (it.kind === "event") html += eventMsgHTML(it.e, it.fresh);
+    else if (it.kind === "brief") html += briefMsgHTML(it.b);
+    else if (it.kind === "raw") html += it.x.html;
+  }
+  if (STATE) {
+    if (lastDay !== "Today") html += `<div class="stream-day">Today</div>`;
+    html += openerHTML();
+  }
+  box.innerHTML = html || `<div class="loading"><span class="spin"></span> Waking Signal up…</div>`;
+  if (STREAM_STICK) box.scrollTop = box.scrollHeight;
+  if ($("#home").classList.contains("active") && document.hasFocus()) markPingsRead();
+}
+
+const userMsgHTML = (text) => `<div class="msg user"><span>${esc(text)}</span></div>`;
+const botMsgHTML = (m) => `<div class="msg bot">${m.trace_html || ""}<span class="ans">${mdLite(m.content)}</span></div>`;
+
+// The agent's standing greeting — live numbers, what's new, and the one ask.
+function openerHTML() {
+  const pf = STATE.portfolio || {};
+  const hs = pf.holdings || [];
+  const top = hs.reduce((a, h) => ((h.weight || 0) > ((a && a.weight) || 0) ? h : a), null);
+  const profileMax = (STATE.profile && STATE.profile.max_single_position_pct) || 15;
+  const bits = [];
+  if (hs.length) {
+    bits.push(`Your book is ${money0(pf.total_value)} across ${hs.length} position${hs.length === 1 ? "" : "s"}, cash ${money0(pf.cash ?? 0)}.`);
+    if (top && (top.weight || 0) > profileMax) bits.push(`${top.ticker} is ${(top.weight || 0).toFixed(1)}% of it — above your ${profileMax}% line.`);
+  } else {
+    bits.push("No holdings synced yet — connect or enter them in Portfolio and I'll start working.");
+  }
+  const unread = pingUnread().filter(chatWorthy).length;
+  if (unread) bits.push(`${unread} new thing${unread === 1 ? "" : "s"} since you last looked — just above.`);
+  let ask = "";
+  if (!(MANDATE && MANDATE.statement)) {
+    ask = "Tell me what you're trying to do — in plain words, right here — and everything I find will align to it.";
+  } else if (MANDATE_REVIEW && (MANDATE_REVIEW.moves || []).length) {
+    const n = MANDATE_REVIEW.moves.length;
+    ask = `Your plan has ${n} move${n === 1 ? "" : "s"} to consider — tap My plan below.`;
+  }
+  // the most pressing reads on your names right now (the old Watching panel, in-line)
+  const rows = FINDINGS.slice(0, 4).map((x) => {
+    let head = x.headline || "";
+    if (x.ticker && head.toUpperCase().startsWith(x.ticker.toUpperCase())) {
+      head = head.slice(x.ticker.length).replace(/^[\s—:-]+/, "");
+    }
+    return `<div class="op-row"${x.ticker ? ` onclick="analyze('${esc(x.ticker)}')"` : ""}>
+      <span class="ic ${esc(x.kind || "")}"></span>
+      <span class="op-head">${x.ticker ? `<em>${esc(x.ticker)}</em> ` : ""}${esc(head)}</span>
+    </div>`;
+  }).join("");
+  const bell = notifyOn() ? "" : ` <button class="linklike" onclick="toggleNotify()">turn on notifications</button>`;
+  return `<div class="msg agent opener">
+    <span class="agent-kicker">Signal</span>
+    <p>${esc(bits.join(" "))}${ask ? " " + esc(ask) : ""}${bell}</p>
+    ${rows ? `<span class="op-lbl">On my radar right now</span>${rows}` : ""}
+  </div>`;
+}
+
+function eventMsgHTML(e, fresh) {
+  const kind = actKind(e);
+  const click = e.event_type === "mandate_plan" ? ` onclick="chipPlan()"`
+    : e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : "";
+  return `<div class="msg agent ev ${kind} ${esc(e.severity || "info")}${fresh ? " fresh" : ""}"${click}>
+    <div class="ev-top">
+      ${e.ticker ? `<span class="ev-tk">${esc(e.ticker)}</span>` : ""}
+      <span class="ev-what">${esc(actWhat(e))}</span>
+      <span class="ev-time">${esc(actTime(e.created_at))}</span>
+    </div>
+    ${e.summary ? `<p class="ev-sum">${actDetail(e)}</p>` : ""}
+  </div>`;
+}
+
+function briefMsgHTML(b) {
+  const bullets = (b.bullets || []).slice(0, 4).map((x) => `<li>${esc(x)}</li>`).join("");
+  const acts = (b.actions || []).slice(0, 3).map((x) => `<li>${esc(x)}</li>`).join("");
+  return `<div class="msg agent brief">
+    <span class="agent-kicker">${esc(b.kind || "")} briefing</span>
+    <p class="brief-title">${esc(b.title || "Briefing")}</p>
+    ${b.summary ? `<p>${esc(b.summary)}</p>` : ""}
+    ${bullets ? `<ul>${bullets}</ul>` : ""}
+    ${acts ? `<span class="brief-lbl">Do</span><ul>${acts}</ul>` : ""}
+  </div>`;
+}
+
+function planMsgHTML(r) {
+  if (!r) return `<div class="msg agent"><p>Couldn't read the book against your plan just now — try again in a moment.</p></div>`;
+  const moves = (r.moves || []).map((mv) => `
+    <div class="plan-move">
+      <span class="pm-tk" onclick="analyze('${esc(mv.ticker)}')">${esc(mv.ticker)}</span>
+      <span class="pill ${esc(mv.action)}">${esc(mv.action)}</span>
+      <span class="pm-why">${esc(mv.reason)}</span>
+    </div>`).join("");
+  return `<div class="msg agent plan">
+    <span class="agent-kicker">Where you stand vs your plan</span>
+    <p>${esc(r.alignment || "")}</p>
+    ${moves || `<p class="plan-fit">Nothing to change — the book fits your plan.</p>`}
+    ${r.note ? `<p class="plan-note">${esc(r.note)}</p>` : ""}
+  </div>`;
+}
+
+function ideasMsgHTML(ideas) {
+  if (!ideas.length) return `<div class="msg agent"><p>No fresh ideas cleared the screen right now — try again later or ask for a specific flavor.</p></div>`;
+  const rows = ideas.map((i) => `
+    <div class="idea-row" onclick="analyze('${esc(i.ticker)}')">
+      <span class="ev-tk">${esc(i.ticker)}</span>
+      <span class="pill ${esc(i.risk_flavor)}">${esc(i.risk_flavor)}</span>
+      <span class="idea-conv">${i.conviction}/10</span>
+      <span class="idea-why">${esc(i.why_now || "")}</span>
+    </div>`).join("");
+  return `<div class="msg agent ideas">
+    <span class="agent-kicker">Fresh ideas — outside your holdings</span>
+    ${rows}
+    <p class="plan-note">Tap a name for the full thesis, or ask me for a stable / more volatile cut.</p>
+  </div>`;
+}
+
+const spinnerMsg = (text) => `<div class="msg agent temp"><p><span class="spin"></span> ${esc(text)}</p></div>`;
+
+function pushEphemeral(html) {
+  return EPHEMERAL.push({ at: new Date().toISOString(), html }) - 1;
+}
+
+// ----- composer quick actions ----- //
+async function chipPlan() {
+  if (!(MANDATE && MANDATE.statement)) {
+    toast("No plan yet — tell me your goal in the chat and I'll set it");
+    const inp = $("#chatInput");
+    if (inp) { inp.placeholder = "e.g. long-term holds I can keep a year+, moderate risk, nothing too speculative"; inp.focus(); }
+    return;
+  }
+  STREAM_STICK = true;
+  const ix = pushEphemeral(spinnerMsg("Reading your book against your plan…"));
+  renderHome();
+  let r = null;
+  try { r = (await api("mandate/review", {})).review || null; } catch (e) {}
+  if (r) MANDATE_REVIEW = r;
+  EPHEMERAL[ix] = { at: EPHEMERAL[ix].at, html: planMsgHTML(r) };
+  renderHome();
+}
+window.chipPlan = chipPlan;
+
+async function chipIdeas() {
+  STREAM_STICK = true;
+  const ix = pushEphemeral(spinnerMsg("Screening 500+ stocks and writing theses — takes a moment…"));
+  renderHome();
+  let ideas = [];
+  try { ideas = (await api("discover", { flavor: "any", top_n: 4 })).ideas || []; } catch (e) {}
+  EPHEMERAL[ix] = { at: EPHEMERAL[ix].at, html: ideasMsgHTML(ideas) };
+  renderHome();
+}
+
+async function chipBrief() {
+  const kind = new Date().getHours() < 14 ? "morning" : "evening";
+  STREAM_STICK = true;
+  const ix = pushEphemeral(spinnerMsg(`Pulling your ${kind} briefing together…`));
+  renderHome();
+  let b = null;
+  try { b = await api("briefing", { kind }); } catch (e) {}
+  if (b && !b.error) {
+    STATE.research = STATE.research || {};
+    STATE.research.briefings = [...(STATE.research.briefings || []), b];
+    EPHEMERAL.splice(ix, 1);   // the saved briefing renders from research state
+  } else {
+    EPHEMERAL[ix] = { at: EPHEMERAL[ix].at, html: `<div class="msg agent"><p>Couldn't build the briefing just now.</p></div>` };
+  }
+  renderHome();
+}
+
+$$("#homeChips .chip").forEach((c) => c.addEventListener("click", () => {
+  if (c.dataset.chip === "plan") chipPlan();
+  else if (c.dataset.chip === "ideas") chipIdeas();
+  else if (c.dataset.chip === "brief") chipBrief();
+}));
+
+const _homeStream = $("#homeStream");
+if (_homeStream) _homeStream.addEventListener("scroll", () => {
+  STREAM_STICK = _homeStream.scrollTop + _homeStream.clientHeight >= _homeStream.scrollHeight - 80;
+});
+
+// ----- send a message (streams the agent's work live) ----- //
 async function sendChat() {
-  const input = $("#chatInput"); const msg = input.value.trim(); if (!msg) return;
-  const log = $("#chatLog");
-  log.innerHTML += `<div class="msg user"><span>${esc(msg)}</span></div>`;
+  const input = $("#chatInput"); const msg = input.value.trim();
+  if (!msg || CHAT_BUSY) return;
+  CHAT_BUSY = true;
+  STREAM_STICK = true;
+  const log = $("#homeStream");
+  log.insertAdjacentHTML("beforeend", userMsgHTML(msg));
   input.value = ""; log.scrollTop = log.scrollHeight;
   const id = "b" + Date.now();
-  log.innerHTML += `<div class="msg bot" id="${id}"><details class="toolbox" open><summary>Research trace</summary><div class="steps"></div></details><span class="ans"><span class="spin"></span></span></div>`;
+  log.insertAdjacentHTML("beforeend", `<div class="msg bot" id="${id}"><details class="toolbox" open><summary>Research trace</summary><div class="steps"></div></details><span class="ans"><span class="spin"></span></span></div>`);
   const wrap = $("#" + id), trace = wrap.querySelector(".toolbox"), steps = wrap.querySelector(".steps"), ans = wrap.querySelector(".ans");
-  $("#assistantStatus").textContent = "Researching";
   log.scrollTop = log.scrollHeight;
 
-  const res = await fetch("/api/chat/stream", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: msg, history: CHAT_HISTORY }),
-  });
-  const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = "", answer = "";
-  while (true) {
-    const { done, value } = await reader.read(); if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const parts = buf.split("\n\n"); buf = parts.pop();
-    for (const p of parts) {
-      const line = p.replace(/^data:\s*/, "").trim(); if (!line) continue;
-      let ev; try { ev = JSON.parse(line); } catch { continue; }
-      if (ev.type === "tool") steps.innerHTML += `<div class="step">🔍 ${ev.name.replace(/_/g, " ")} <em>${esc(JSON.stringify(ev.input))}</em></div>`;
-      else if (ev.type === "chart") steps.innerHTML += chartHTML(ev.chart || {});
-      else if (ev.type === "tool_result") steps.innerHTML += `<div class="step result">${esc(ev.summary)}</div>`;
-      else if (ev.type === "note" && !answer) steps.innerHTML += `<div class="step note">💭 ${esc(ev.text).slice(0, 200)}</div>`;
-      else if (ev.type === "answer") answer = ev.text;
-      else if (ev.type === "error") answer = "Error: " + ev.text;
-      log.scrollTop = log.scrollHeight;
+  let answer = "";
+  try {
+    const res = await fetch("/api/chat/stream", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: msg, history: CHAT_HISTORY }),
+    });
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n"); buf = parts.pop();
+      for (const p of parts) {
+        const line = p.replace(/^data:\s*/, "").trim(); if (!line) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.type === "tool") steps.innerHTML += `<div class="step">${esc(ev.name.replace(/_/g, " "))} <em>${esc(JSON.stringify(ev.input))}</em></div>`;
+        else if (ev.type === "chart") steps.innerHTML += chartHTML(ev.chart || {});
+        else if (ev.type === "tool_result") steps.innerHTML += `<div class="step result">${esc(ev.summary)}</div>`;
+        else if (ev.type === "note" && !answer) steps.innerHTML += `<div class="step note">${esc(ev.text).slice(0, 200)}</div>`;
+        else if (ev.type === "answer") answer = ev.text;
+        else if (ev.type === "error") answer = "Error: " + ev.text;
+        if (STREAM_STICK) log.scrollTop = log.scrollHeight;
+      }
     }
+  } catch (e) {
+    answer = answer || "Connection dropped — try again.";
   }
   ans.innerHTML = mdLite(answer);
+  let traceHtml = "";
   if (!steps.innerHTML.trim()) trace.remove();
-  else trace.open = false;
-  $("#assistantStatus").textContent = "Ready";
+  else { trace.open = false; traceHtml = trace.outerHTML; }
   CHAT_HISTORY.push({ role: "user", content: msg }, { role: "assistant", content: answer });
-  log.scrollTop = log.scrollHeight;
+  const now = new Date().toISOString();
+  CHAT_MSGS.push({ role: "user", content: msg, created_at: now },
+                 { role: "assistant", content: answer, created_at: now, trace_html: traceHtml });
+  CHAT_BUSY = false;
+  renderHome();   // settle the in-flight DOM into the data-driven stream
+  // The agent may have changed tracked state (watchlist, missions, mandate) — refresh quietly.
+  try { STATE = await api("state"); renderState(); loadMandate(); } catch (e) {}
 }
 $("#sendChat").onclick = sendChat;
 $("#chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
@@ -1649,10 +1753,10 @@ function closeModal() { $("#modal").classList.add("hidden"); $("#modalCard").cla
 window.closeModal = closeModal;
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 
-// ---------- pings: the "new since you last looked" navigator strip ----------
-// Rides on the same event stream the brain already logs. Unread = events with an id newer than
-// the last one acknowledged (persisted in localStorage). Surfaces as a rail on the Brain tab +
-// a count badge on the Brain/Activity tabs, and optionally a browser notification.
+// ---------- pings: unread tracking + notifications ----------
+// Rides on the same event stream the brain already logs. Unread = events with an id newer
+// than the last one acknowledged (persisted in localStorage). New events flow straight into
+// the Home stream as agent messages; this tracks badges + browser notifications.
 let PING_SEEN = +(localStorage.getItem("pingSeenId") || 0);
 let PING_EVENTS = [];
 
@@ -1660,7 +1764,7 @@ function pingUnread() { return PING_EVENTS.filter((e) => (e.id || 0) > PING_SEEN
 
 async function loadPings() {
   let r;
-  try { r = await api("events?limit=40"); } catch (e) { return; }
+  try { r = await api("events?limit=120"); } catch (e) { return; }
   const prev = PING_EVENTS;
   PING_EVENTS = (r && r.events) || [];
   if (localStorage.getItem("pingSeenId") === null && PING_EVENTS.length) {
@@ -1670,6 +1774,7 @@ async function loadPings() {
     localStorage.setItem("pingSeenId", String(PING_SEEN));
   }
   renderPings();
+  renderHome();   // new brain events land in the conversation
   maybeNotify(prev);
 }
 
@@ -1682,49 +1787,8 @@ function setBadge(id, n) {
 
 function renderPings() {
   const unread = pingUnread();
-  setBadge("badgeBrain", unread.length);
+  setBadge("badgeHome", unread.length);
   setBadge("badgeActivity", unread.length);
-  const rail = $("#pingRail");
-  if (!rail) return;
-  rail.classList.remove("hidden");
-  if (!unread.length) {
-    // Quiet "present but nothing new" state — the navigator should still feel alive when calm.
-    rail.classList.add("calm");
-    rail.innerHTML = `
-      <div class="ping-head">
-        <span class="ping-live calm">All caught up — Signal is watching</span>
-        <div class="ping-actions">
-          <button class="linklike" id="pingBell">${notifyOn() ? "notifications on" : "turn on notifications"}</button>
-          <button class="linklike" onclick="document.querySelector('.tab[data-tab=activity]').click()">open Activity</button>
-        </div>
-      </div>`;
-    $("#pingBell").onclick = toggleNotify;
-    return;
-  }
-  rail.classList.remove("calm");
-  const top = unread.slice(0, 6);
-  rail.innerHTML = `
-    <div class="ping-head">
-      <span class="ping-live">${unread.length} new since you last looked</span>
-      <div class="ping-actions">
-        <button class="linklike" id="pingBell">${notifyOn() ? "notifications on" : "turn on notifications"}</button>
-        <button class="linklike" id="pingClear">mark all read</button>
-      </div>
-    </div>
-    <div class="ping-list">
-      ${top.map((e) => `
-        <div class="ping-item ${esc(e.severity || "info")}"${e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : ""}>
-          <span class="ping-dot"></span>
-          <span class="ping-tk">${esc(e.ticker || "")}</span>
-          <span class="ping-what">${esc(e.title || "")}</span>
-          <span class="ping-time">${esc(actTime(e.created_at))}</span>
-        </div>`).join("")}
-      ${unread.length > top.length
-        ? `<div class="ping-more" onclick="document.querySelector('.tab[data-tab=activity]').click()">+${unread.length - top.length} more — open Activity →</div>`
-        : ""}
-    </div>`;
-  $("#pingClear").onclick = () => markPingsRead();
-  $("#pingBell").onclick = toggleNotify;
 }
 
 function markPingsRead(events) {
@@ -1741,13 +1805,14 @@ function notifyOn() {
 }
 function toggleNotify() {
   if (!("Notification" in window)) { toast("This browser can't show notifications"); return; }
-  if (notifyOn()) { localStorage.setItem("pingNotify", "0"); renderPings(); toast("Notifications off"); return; }
+  if (notifyOn()) { localStorage.setItem("pingNotify", "0"); renderHome(); toast("Notifications off"); return; }
   Notification.requestPermission().then((p) => {
     localStorage.setItem("pingNotify", p === "granted" ? "1" : "0");
     toast(p === "granted" ? "Notifications on" : "Notifications blocked in browser settings");
-    renderPings();
+    renderHome();   // the opener's notification link reflects the new state
   });
 }
+window.toggleNotify = toggleNotify;
 function maybeNotify(prevEvents) {
   if (!notifyOn()) return;
   const prevMax = prevEvents.reduce((m, e) => Math.max(m, e.id || 0), 0);
@@ -1765,6 +1830,7 @@ function maybeNotify(prevEvents) {
 // ---------- boot ----------
 loadState().then(() => {
   loadMandate();
+  loadChatHistory();
   loadScore();
   loadPings();
   setTimeout(() => refreshLive({ quiet: true }), 250);
@@ -1773,6 +1839,7 @@ loadState().then(() => {
 setInterval(() => {
   loadState();
   loadPings();
+  loadFeed();   // keeps the opener's radar fresh (server-side cached, cheap)
   // Keep the Shadow scorecard live while you're watching it (marks open trades to fresh quotes).
   if ($("#shadow").classList.contains("active")) loadScore(true);
 }, 60000);

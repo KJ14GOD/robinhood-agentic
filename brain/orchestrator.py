@@ -582,3 +582,13 @@ def chat_stream(message: str, history: list[dict] | None = None) -> Iterator[dic
     """Streaming variant — yields each step as it happens so the UI can render
     the brain's thinking live (tool calls, interim notes, final answer)."""
     yield from agent.run_stream(message, history=history)
+
+
+def chat_history(limit: int = 80) -> list[dict]:
+    """The persisted Home conversation (user + assistant turns), oldest first."""
+    return db_repo.recent_chat_messages(limit=limit)
+
+
+def save_chat_message(role: str, content: str) -> None:
+    """Persist one turn of the Home conversation (best-effort)."""
+    db_repo.save_chat_message(role, content)

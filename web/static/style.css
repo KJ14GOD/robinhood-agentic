@@ -44,10 +44,12 @@ header{display:flex;justify-content:space-between;align-items:flex-start;padding
   .signal-mark{animation:none}
 }
 
-/* nav */
-nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px}
-.tab{background:none;border:none;color:var(--muted);padding:12px 0;cursor:pointer;font-size:15px;
+/* nav — Home is the front door; everything else is a quiet drill-down */
+nav{display:flex;gap:22px;border-bottom:1px solid var(--line);margin:18px 0 26px;align-items:center}
+.tab{background:none;border:none;color:var(--muted);padding:12px 0;cursor:pointer;font-size:13px;
   font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
+.tab[data-tab=home]{font-size:15px;font-weight:650}
+.nav-sep{width:1px;height:15px;background:var(--line);flex:none}
 .tab:hover{color:var(--txt)}
 .tab.active{color:var(--txt);border-bottom-color:var(--green)}
 .tab{position:relative}
@@ -55,30 +57,6 @@ nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin:18px 0 26px
   background:var(--brain);color:#fff;font-size:10.5px;font-weight:680;line-height:17px;text-align:center;
   font-family:var(--mono);vertical-align:middle}
 
-/* "new since you last looked" navigator rail — Brain tab */
-.ping-rail{margin:0 0 20px;border:1px solid var(--line);border-left:3px solid var(--brain);border-radius:11px;
-  background:linear-gradient(180deg,#faf9ff,var(--surface));box-shadow:var(--shadow);overflow:hidden}
-.ping-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:10px 15px;border-bottom:1px solid var(--line2)}
-.ping-live{font-size:13px;font-weight:620;color:var(--brain)}
-.ping-live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brain);
-  margin-right:8px;vertical-align:middle;box-shadow:0 0 0 3px rgba(110,86,207,.16)}
-.ping-rail.calm{border-left-color:var(--green);background:var(--surface)}
-.ping-live.calm{color:var(--muted);font-weight:560}
-.ping-live.calm::before{background:var(--green);box-shadow:0 0 0 3px rgba(16,163,72,.14)}
-.ping-actions{display:flex;gap:14px;flex-shrink:0}
-.ping-list{padding:3px 0}
-.ping-item{display:grid;grid-template-columns:9px 58px minmax(0,1fr) auto;align-items:center;gap:10px;
-  padding:7px 15px;cursor:pointer;font-size:13px}
-.ping-item:hover{background:#fcfbff}
-.ping-dot{width:7px;height:7px;border-radius:50%;background:var(--blue)}
-.ping-item.warn .ping-dot{background:var(--amber)}
-.ping-item.alert .ping-dot{background:var(--red)}
-.ping-tk{font-family:var(--mono);font-size:12px;color:var(--brain);font-weight:600}
-.ping-what{color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ping-time{color:var(--faint);font-size:11px;font-family:var(--mono)}
-.ping-more{padding:8px 15px;font-size:12px;color:var(--muted);cursor:pointer;border-top:1px solid var(--line2)}
-.ping-more:hover{color:var(--brain)}
 .sc-stamp{font-family:var(--mono);font-size:13px;color:var(--muted);font-weight:560}
 .dr-web{margin:6px 0 2px;padding:11px 13px;background:#faf9ff;border:1px solid var(--line);
   border-left:3px solid var(--brain);border-radius:9px}
@@ -206,17 +184,71 @@ h3{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .dos-call{margin-left:auto;font-size:11px;color:var(--faint)}
 .dos-detail{padding:28px 30px;overflow:auto}
 
-/* daily workspace */
-.brain-shell{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:28px;align-items:start}
-.workspace{min-width:0}
-.assistant-pane{position:sticky;top:18px;min-width:0}
-.today-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
-.signal-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0 16px}
-.signal{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;min-height:74px}
-.signal label{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:700}
-.signal strong{display:block;margin-top:5px;font-size:18px;color:var(--txt);font-variant-numeric:tabular-nums}
-.signal span{display:block;margin-top:3px;font-size:12px;color:var(--muted);line-height:1.35}
-.status-dot{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:16px;padding:4px 9px;background:#fff}
+/* ===================== Home — the chat-first cockpit ===================== */
+/* No container chrome: the conversation sits straight on the page background.
+   Messages are plain text separated by air; the only ink is a 2px left edge
+   carrying the agent's voice (violet) or an event's severity (amber/red) —
+   the same visual language Activity already speaks. */
+.home-main{max-width:860px;margin:0 auto;min-width:0;display:flex;flex-direction:column}
+/* flex + margin-top:auto pins a short conversation to the bottom, like a real chat */
+.stream{overflow-y:auto;height:calc(100vh - 300px);min-height:460px;padding:2px 14px 4px 2px;
+  display:flex;flex-direction:column}
+.stream > *{flex:none}
+.stream > :first-child{margin-top:auto}
+.stream::-webkit-scrollbar{width:8px}
+.stream::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.stream::-webkit-scrollbar-thumb:hover{background:#d5d7da}
+.stream::-webkit-scrollbar-track{background:transparent}
+.stream-day{display:flex;align-items:center;gap:14px;padding:20px 0 16px;
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-family:var(--mono)}
+.stream-day::before,.stream-day::after{content:"";height:1px;background:var(--line2);flex:1}
+.msg.agent{max-width:680px;border-left:2px solid var(--brain);
+  background:transparent;padding:1px 0 1px 16px;margin-bottom:20px;flex:none}
+.msg.agent p{margin:3px 0;font-size:14px;line-height:1.6;color:var(--ink2)}
+.msg.agent ul{margin:6px 0 4px 18px;padding:0}
+.msg.agent li{font-size:13.5px;line-height:1.55;color:var(--ink2);margin:3px 0}
+.msg.agent.warn{border-left-color:var(--amber)}
+.msg.agent.alert{border-left-color:var(--red)}
+.msg.agent.ev{cursor:pointer;border-radius:0 8px 8px 0;transition:background .12s;padding-right:10px}
+.msg.agent.ev:hover{background:#faf9ff}
+.msg.agent.fresh{background:linear-gradient(90deg,#faf9ff,transparent 72%)}
+.agent-kicker{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+  font-weight:700;color:var(--brain);margin-bottom:4px}
+/* events: a scannable headline + a two-line whisper of detail — the full story
+   lives one click away (research card / Activity), never dumped in the chat */
+.ev-top{display:flex;align-items:baseline;gap:10px;min-width:0}
+.ev-tk{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--brain);flex:none}
+.ev-what{font-size:14px;font-weight:600;color:var(--txt);min-width:0;letter-spacing:-.005em}
+.ev-time{margin-left:auto;font-size:10.5px;color:var(--faint);font-family:var(--mono);white-space:nowrap;flex:none}
+.ev-sum{color:var(--muted)!important;font-size:12.5px!important;line-height:1.5!important;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.msg.agent.ev:hover .ev-sum{-webkit-line-clamp:unset}
+.brief-title{font-weight:640}
+.brief-lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--faint);font-weight:700;margin-top:8px}
+.idea-row{display:grid;grid-template-columns:54px auto 44px minmax(0,1fr);align-items:baseline;gap:10px;
+  padding:7px 0;border-top:1px solid var(--line2);cursor:pointer}
+.idea-row:hover .ev-tk{text-decoration:underline}
+.idea-conv{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.idea-why{font-size:12.5px;color:var(--muted);line-height:1.45}
+/* composer */
+.home-composer{margin-top:10px;padding-top:12px;border-top:1px solid var(--line)}
+.chips{display:flex;gap:8px;margin-bottom:9px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:18px;
+  padding:5px 12px;font-size:12px;font-weight:560;cursor:pointer;transition:.13s}
+.chip:hover{border-color:var(--brain);color:var(--brain)}
+.home-composer .composer input{background:#fff}
+/* opener radar rows — the most pressing reads on your names, inside the greeting */
+.op-lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--faint);font-weight:700;margin:12px 0 2px}
+.op-row{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line2);cursor:pointer;align-items:baseline}
+.op-row:hover .op-head{color:var(--brain)}
+.op-row .ic{width:6px;height:6px;border-radius:50%;background:var(--muted);flex:none;align-self:center}
+.op-row .ic.opportunity{background:var(--green)}
+.op-row .ic.risk,.op-row .ic.concentration{background:var(--red)}
+.op-row .ic.news{background:var(--amber)}
+.op-head{min-width:0;font-size:13px;font-weight:560;color:var(--txt);line-height:1.45;transition:color .12s}
+.op-head em{font-style:normal;font-family:var(--mono);font-weight:700;color:var(--brain);margin-right:2px}
 
 /* buttons & inputs */
 .primary{background:var(--txt);color:#fff;border:none;border-radius:22px;padding:10px 18px;
@@ -379,13 +411,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--txt)}
 .finding .fd{font-size:13px;color:var(--muted);margin-top:2px;line-height:1.45}
 .finding .tk{font-family:var(--mono);font-weight:700;cursor:pointer;color:var(--blue)}
 
-/* chat */
-.chatlog{border:1px solid var(--line);border-radius:14px;padding:16px;min-height:520px;max-height:68vh;
-  overflow-y:auto;margin:12px 0;background:#fff;box-shadow:var(--shadow)}
-.msg{margin-bottom:16px;line-height:1.55}
-.msg.user{text-align:right}
-.msg.user span{background:var(--txt);color:#fff;padding:10px 14px;border-radius:16px;display:inline-block;max-width:86%;text-align:left}
-.msg.bot .ans{background:#fff;display:block;max-width:100%;font-size:14.5px;color:var(--ink2)}
+/* chat bubbles (Home stream) */
+.msg{margin-bottom:20px;line-height:1.55;flex:none}
+.msg.user{text-align:right;margin:26px 0 22px}
+.msg.user span{background:var(--raised);color:var(--txt);border:1px solid var(--line);
+  padding:9px 15px;border-radius:18px;display:inline-block;max-width:68%;text-align:left;font-size:14px}
+.msg.bot .ans{background:transparent;display:block;max-width:680px;font-size:14.5px;color:var(--ink2)}
 .msg.bot .ans strong{color:var(--txt)}
 .msg.bot .ans ul{margin:7px 0 12px 18px;padding:0}
 .msg.bot .ans li{margin:4px 0}
@@ -677,15 +708,12 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .fb .no:hover{border-color:var(--red);color:var(--red)}
 
 @media (max-width:980px){
-  .brain-shell{grid-template-columns:1fr}
-  .assistant-pane{position:static}
-  .chatlog{min-height:320px}
+  .stream{height:auto;max-height:62vh;min-height:340px}
 }
 @media (max-width:720px){
   #app{padding:0 16px 64px}
   header{align-items:flex-start}
-  .signal-strip{grid-template-columns:1fr}
-  nav{gap:18px;overflow-x:auto}
+  nav{gap:14px;overflow-x:auto}
   .portfolio-chart{padding:14px}
   .seg{width:100%;justify-content:space-between}
   .seg button{flex:1;padding:7px 6px}

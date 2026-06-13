@@ -179,22 +179,35 @@ def save_holdings(body: HoldingsBody):
 @app.post("/api/chat")
 def chat(body: ChatBody):
     """Non-streaming agentic chat. Returns {answer, steps} once complete."""
-    return brain.chat(body.message, history=body.history)
+    brain.save_chat_message("user", body.message)
+    out = brain.chat(body.message, history=body.history)
+    brain.save_chat_message("assistant", (out or {}).get("answer", ""))
+    return out
 
 
 @app.post("/api/chat/stream")
 def chat_stream(body: ChatBody):
     """Server-Sent Events: streams each step (tool call, note, answer) as the
-    agent works, so the UI can render its reasoning live."""
+    agent works, so the UI can render its reasoning live. Both turns are persisted
+    so the Home conversation survives reloads."""
     def gen():
+        brain.save_chat_message("user", body.message)
         try:
             for ev in brain.chat_stream(body.message, history=body.history):
+                if ev.get("type") == "answer":
+                    brain.save_chat_message("assistant", ev.get("text", ""))
                 yield f"data: {json.dumps(ev)}\n\n"
         except Exception as e:  # noqa: BLE001
             yield f"data: {json.dumps({'type':'error','text':str(e)})}\n\n"
         yield "data: {\"type\":\"done\"}\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/chat/history")
+def chat_history(limit: int = Query(80, ge=1, le=200)):
+    """The persisted Home conversation, oldest first (chat order)."""
+    return {"messages": brain.chat_history(limit=limit)}
 
 
 def _analyst_sources(ticker: str) -> list[dict]:

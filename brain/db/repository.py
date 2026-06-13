@@ -13,6 +13,7 @@ from ..models import (
 from .models import (
     AgentRunRecord,
     BriefingRecord,
+    ChatMessageRecord,
     EvalLabelRecord,
     EvidenceItemRecord,
     MandateRecord,
@@ -289,6 +290,46 @@ def save_research_state(state: ResearchState) -> None:
                 row.created_at = _parse_dt(briefing.created_at)
     except Exception:
         return
+
+
+def save_chat_message(role: str, content: str) -> None:
+    """Persist one turn of the Home conversation. Best-effort — chat must keep
+    working even if the DB write fails."""
+    if not _ensure_ready() or not (content or "").strip():
+        return
+    try:
+        with db_session() as session:
+            session.add(ChatMessageRecord(role=role, content=content))
+    except Exception:
+        return
+
+
+def recent_chat_messages(limit: int = 80, within_hours: float = 24.0 * 7) -> list[dict]:
+    """The persisted Home conversation, oldest first (chat order)."""
+    if not _ensure_ready():
+        return []
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+        with db_session() as session:
+            stmt = (
+                select(ChatMessageRecord)
+                .where(ChatMessageRecord.created_at >= cutoff)
+                .order_by(desc(ChatMessageRecord.created_at))
+                .limit(limit)
+            )
+            rows = list(session.execute(stmt).scalars().all())
+        rows.reverse()
+        return [
+            {
+                "id": r.id,
+                "role": r.role,
+                "content": r.content,
+                "created_at": r.created_at.isoformat() if r.created_at else "",
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 def save_research_event(

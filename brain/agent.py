@@ -47,6 +47,10 @@ You are operating in AGENT MODE with tools. Work like a real analyst:
 MANAGING THE BRAIN (control tools — you can change the user's tracked state):
 - You can add/remove watchlist names, set entry-price alerts, drop stored theses, and start /
   pause / resume / archive / delete strategy missions. This lets the user run the app by talking.
+- When the user states their overall investing goal ("I want long-term holds I can keep a year+,
+  nothing too speculative"), persist it with set_mandate so the whole system aligns to it, then
+  confirm what you understood. Only on an explicit goal statement — never infer one from a
+  passing question or a single trade idea.
 - Only mutate state on a CLEAR, EXPLICIT user request ("add NVDA to my watchlist", "stop tracking
   the defense mission", "drop the RKLB thesis"). Never delete or remove something on your own
   initiative or as a side effect of analysis.
@@ -236,6 +240,19 @@ TOOLS = [
         },
     },
     {
+        "name": "set_mandate",
+        "description": "Set or replace the user's standing mandate — the plain-language goal "
+                       "every recommendation aligns to (horizon, risk, style, favor/avoid). Use "
+                       "ONLY when the user explicitly states their overall investing goal or asks "
+                       "to change it (e.g. 'I want long-term holds, a year plus, nothing too "
+                       "speculative'). Pass their goal in their own words.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"statement": {"type": "string", "description": "The user's goal, in their words."}},
+            "required": ["statement"],
+        },
+    },
+    {
         "name": "manage_mission",
         "description": "Pause, resume, archive, or delete an existing strategy mission, matched by "
                        "its title. 'archive' stops tracking but keeps it; 'delete' removes it "
@@ -396,6 +413,15 @@ def _find_mission(title: str):
     return None
 
 
+def _tool_set_mandate(statement: str) -> str:
+    if not (statement or "").strip():
+        return "No goal given — nothing set."
+    from . import mandate as _mandate_mod
+    m = _mandate_mod.set_mandate(statement)
+    return (f"Mandate set: {m.summary or m.statement} — every recommendation, plan review, "
+            "and idea now aligns to it.")
+
+
 def _tool_manage_mission(title: str, action: str) -> str:
     m = _find_mission(title)
     if not m:
@@ -427,6 +453,7 @@ _DISPATCH: dict[str, Callable[..., str]] = {
     "drop_thesis": _tool_drop_thesis,
     "start_mission": _tool_start_mission,
     "manage_mission": _tool_manage_mission,
+    "set_mandate": _tool_set_mandate,
 }
 
 

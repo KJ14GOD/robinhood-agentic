@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Signal · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=58" />
+<link rel="stylesheet" href="/static/style.css?v=64" />
 </head>
 <body>
 <div id="app">
@@ -27,9 +27,10 @@
   <div id="staleBanner" class="stale-banner hidden"></div>
 
   <nav>
-    <button class="tab active" data-tab="brain">Today<span class="tab-badge hidden" id="badgeBrain"></span></button>
-    <button class="tab" data-tab="activity">Activity<span class="tab-badge hidden" id="badgeActivity"></span></button>
+    <button class="tab active" data-tab="home">Home<span class="tab-badge hidden" id="badgeHome"></span></button>
+    <span class="nav-sep"></span>
     <button class="tab" data-tab="portfolio">Portfolio</button>
+    <button class="tab" data-tab="activity">Activity<span class="tab-badge hidden" id="badgeActivity"></span></button>
     <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="shadow">Scorecard</button>
     <button class="tab" data-tab="evals">Evals</button>
@@ -37,61 +38,21 @@
   </nav>
 
   <main>
-    <!-- TODAY: daily workspace + agentic chat -->
-    <section id="brain" class="panel active">
-      <div class="brain-shell">
-        <div class="workspace">
-          <div id="pingRail" class="ping-rail hidden"></div>
-          <div id="mandateCard" class="mandate-card"></div>
-          <div class="today-head">
-            <div>
-              <h2>Today</h2>
-              <p class="sub" id="todayLine">Loading portfolio state...</p>
-            </div>
-            <button class="ghost" id="refreshFeed">Rescan</button>
+    <!-- HOME: the conversation is the interface — everything Signal does lands here -->
+    <section id="home" class="panel active">
+      <div class="home-main">
+        <div id="homeStream" class="stream"><div class="loading"><span class="spin"></span> Waking Signal up...</div></div>
+        <div class="home-composer">
+          <div class="chips" id="homeChips">
+            <button class="chip" data-chip="plan">My plan</button>
+            <button class="chip" data-chip="ideas">Find ideas</button>
+            <button class="chip" data-chip="brief">Brief me now</button>
           </div>
-          <div class="signal-strip" id="todayMetrics"></div>
-
-          <div class="section-head">
-            <h3>Findings</h3>
-          </div>
-          <div class="feed" id="feed"><div class="loading"><span class="spin"></span> Scanning your portfolio and the market...</div></div>
-
-          <div class="section-head">
-            <h3>Ideas</h3>
-            <div class="row">
-              <select id="flavor">
-                <option value="any">Best overall</option>
-                <option value="stable">Stable</option>
-                <option value="volatile">More volatile</option>
-              </select>
-              <button class="ghost" id="runDiscover">Find</button>
-            </div>
-          </div>
-          <p class="sub">A screen across 500+ stocks finds candidates outside your holdings; Signal writes the thesis and tracks them in the feed.</p>
-          <div id="ideas" class="cards"></div>
-
-          <div class="section-head">
-            <h3>Briefing inbox</h3>
-            <div class="row">
-              <button class="ghost" id="morningBrief">Morning</button>
-              <button class="ghost" id="eveningBrief">Evening</button>
-            </div>
-          </div>
-          <div id="briefings" class="cards"></div>
-        </div>
-
-        <aside class="assistant-pane">
-          <div class="row between">
-            <h2>Assistant</h2>
-            <span class="status-dot" id="assistantStatus">Ready</span>
-          </div>
-          <div class="chatlog" id="chatLog"></div>
           <div class="composer">
-            <input id="chatInput" placeholder="Ask about risk, entries, charts, or a new idea" />
+            <input id="chatInput" placeholder="Ask anything — a ticker, your risk, new ideas, or tell me your goal" />
             <button class="primary" id="sendChat">Ask</button>
           </div>
-        </aside>
+        </div>
       </div>
     </section>
 
@@ -273,6 +234,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=60"></script>
+<script src="/static/app.js?v=64"></script>
 </body>
 </html>

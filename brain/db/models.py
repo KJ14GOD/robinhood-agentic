@@ -241,6 +241,19 @@ class EvalLabelRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class ChatMessageRecord(Base):
+    """One turn of the Home conversation (user or assistant), persisted so the
+    chat-first home survives reloads. Only the final text is stored — the full
+    tool trace of each answer already lives in agent_runs."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    role: Mapped[str] = mapped_column(String(20), default="user", index=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class MissionRecord(Base):
     """A standing research mission. The brain keeps its roster of candidates
     current and re-labels them on a gated cadence, reporting changes on its own."""
