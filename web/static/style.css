@@ -673,6 +673,83 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .ob-btn:hover{opacity:.92}
 .ob-skip{display:inline-block;margin-top:18px;font-size:12px;color:var(--faint)}
 
+/* ---------- Autopilot (the paper fund that races your real book) ---------- */
+.ap-empty{display:flex;justify-content:center;padding:34px 0}
+.ap-empty-card{max-width:560px;text-align:center}
+.ap-empty-card h3{font-size:18px;margin:0 0 10px}
+.ap-empty-card p{color:var(--muted);line-height:1.6;font-size:14px;margin:0 0 14px}
+.ap-warn{color:var(--amber)!important}
+.ap-start{font:inherit;font-size:14px;font-weight:600;border:none;border-radius:10px;padding:11px 22px;background:var(--brain);color:#fff;cursor:pointer}
+.ap-start:hover{opacity:.92}
+.ap-note{font-size:12px;color:var(--faint)!important;margin-top:14px!important}
+
+.ap-hero{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px;border:1px solid var(--line2);border-radius:14px;padding:22px 24px;margin:16px 0;background:var(--card)}
+.ap-side{display:flex;flex-direction:column;gap:4px}
+.ap-side.twin{text-align:right;align-items:flex-end}
+.ap-side-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
+.ap-side-val{font-size:30px;font-weight:700;font-family:var(--mono);line-height:1}
+.ap-side-ret{font-size:14px;font-family:var(--mono)}
+.ap-side-ret.pos{color:var(--green-d)} .ap-side-ret.neg{color:var(--red)}
+.ap-vs{text-align:center;display:flex;flex-direction:column;gap:5px;min-width:150px}
+.ap-edge{font-size:14px;font-weight:650;line-height:1.3}
+.ap-edge.ahead{color:var(--brain)} .ap-edge.behind{color:var(--muted)}
+.ap-since{font-size:11px;color:var(--faint);font-family:var(--mono)}
+
+.ap-status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:-4px 0 14px}
+.ap-stat{border:1px solid var(--line2);border-radius:12px;background:var(--surface);padding:11px 12px;min-width:0}
+.ap-stat span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:720;margin-bottom:5px}
+.ap-stat strong{display:block;font-family:var(--mono);font-size:18px;line-height:1.1;color:var(--txt);font-weight:740}
+.ap-stat em{display:block;margin-top:6px;font-style:normal;font-size:11.5px;color:var(--muted);line-height:1.35}
+.ap-stat.queued{border-color:#eadbb8;background:#fffdf8}
+
+.ap-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-2px 0 16px;flex-wrap:wrap}
+.ap-cadence{font-size:12px;color:var(--faint)}
+.ap-cadence strong{color:var(--muted);font-weight:650}
+.ap-cycle{font:inherit;font-size:12.5px;font-weight:560;border:1px solid var(--line2);background:var(--card);color:var(--txt);border-radius:8px;padding:7px 14px;cursor:pointer}
+.ap-cycle:hover{border-color:var(--brain);color:var(--brain)}
+.ap-chart{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;background:var(--card);margin-bottom:16px}
+.ap-chart svg{width:100%;height:180px;display:block}
+.ap-chart-empty,.ap-hist-empty{color:var(--faint);font-style:italic;font-size:13.5px;padding:14px 0}
+.ap-legend{display:flex;gap:18px;margin-top:9px;font-size:12px;color:var(--muted)}
+.ap-legend .lg{display:flex;align-items:center;gap:6px}
+.ap-legend .lg::before{content:"";width:14px;height:2.5px;border-radius:2px;background:var(--faint)}
+.ap-legend .lg.twin::before{background:var(--brain)}
+
+.ap-diff{font-size:13px;color:var(--muted);margin:0 0 10px}
+.ap-holdings{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+@media(max-width:680px){.ap-holdings{grid-template-columns:1fr}.ap-hero{grid-template-columns:1fr;text-align:center}.ap-side.twin{align-items:center;text-align:center}}
+.ap-col{border:1px solid var(--line2);border-radius:12px;padding:12px 14px;background:var(--card)}
+.ap-col-h{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;margin-bottom:8px}
+.ap-hrow{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:6px 0;border-top:1px solid var(--line2);font-size:13.5px}
+.ap-col .ap-hrow:first-of-type{border-top:none}
+.ap-h-tk{font-weight:600}
+.ap-tag{font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--brain);border:1px solid var(--line2);border-radius:4px;padding:1px 5px;font-weight:700;vertical-align:middle}
+.ap-h-w{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.ap-h-w.pos{color:var(--green-d)} .ap-h-w.neg{color:var(--red)}
+.ap-h-v{font-family:var(--mono);font-size:13px;text-align:right}
+.ap-hrow.cash{color:var(--muted)}
+
+.ap-history{margin-top:6px}
+.ap-history h3{font-size:15px;margin:0 0 2px}
+.ap-hist-sub{font-size:12.5px;color:var(--muted);margin:0 0 8px}
+.ap-day{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;margin:14px 0 4px}
+.ap-trade{display:grid;grid-template-columns:auto auto auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line2)}
+.ap-t-time{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.ap-act{font-size:10.5px;font-weight:700;font-family:var(--mono);padding:2px 7px;border-radius:5px;letter-spacing:.03em}
+.ap-act.buy,.ap-act.add{color:var(--green-d);background:#e9f6ee}
+.ap-act.sell,.ap-act.trim{color:var(--red);background:#fcecec}
+.ap-t-tk{font-weight:650;font-size:13.5px}
+.ap-t-detail{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.ap-t-status{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--faint)}
+.ap-t-status.filled{color:var(--green-d)} .ap-t-status.pending{color:var(--amber)} .ap-t-status.canceled{color:var(--red)}
+.ap-t-tags{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;margin:1px 0 0}
+.ap-meta{font-size:10.5px;line-height:1;border:1px solid var(--line2);border-radius:999px;padding:4px 7px;color:var(--muted);background:var(--raised)}
+.ap-critic{grid-column:1/-1;font-size:12px;color:var(--amber);line-height:1.45;margin:2px 0 0}
+.ap-t-why{grid-column:1/-1;font-size:12.5px;color:var(--muted);line-height:1.5;margin:2px 0 0}
+.ap-review{grid-column:1/-1;font-size:12px;color:var(--green-d);line-height:1.45;margin:2px 0 0}
+.ap-grade{font-family:var(--mono);font-size:11px;color:var(--brain)}
+@media(max-width:680px){.ap-status{grid-template-columns:1fr}.ap-trade{grid-template-columns:auto auto 1fr}.ap-t-detail,.ap-t-status{grid-column:2/-1}}
+
 /* ---------- mandate card (the cockpit) ---------- */
 .mandate-card{border:1px solid var(--line2);border-radius:14px;padding:16px 18px;margin-bottom:18px;background:var(--card)}
 .mandate-card:empty{display:none}

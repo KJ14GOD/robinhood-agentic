@@ -1235,6 +1235,29 @@ def upsert_twin_position(ticker: str, shares: float, avg_cost: float,
         return
 
 
+def set_twin_intent(ticker: str, thesis: str | None = None, horizon: str | None = None,
+                    exit_rule: str | None = None) -> None:
+    """Update only the Twin's intent fields on a position it already holds (no-op otherwise) — used
+    when the decision cycle re-judges a name without changing its share count."""
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.execute(select(TwinPositionRecord).where(
+                TwinPositionRecord.ticker == ticker.upper()).limit(1)).scalars().first()
+            if not r:
+                return
+            if thesis is not None:
+                r.thesis = thesis
+            if horizon is not None:
+                r.horizon = horizon
+            if exit_rule is not None:
+                r.exit_rule = exit_rule
+            r.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
 def delete_twin_position(ticker: str) -> None:
     if not _ensure_ready():
         return
@@ -1249,13 +1272,21 @@ def delete_twin_position(ticker: str) -> None:
 
 
 def add_twin_trade(ticker: str, action: str, shares: float, reasoning: str = "",
-                   conviction: int = 0, status: str = "pending") -> int:
+                   conviction: int = 0, status: str = "pending", usd: float = 0.0,
+                   tactic: str = "", horizon: str = "", thesis: str = "",
+                   exit_rule: str = "", review_after_days: int = 7,
+                   critic_note: str = "") -> int:
+    """Queue a trade. A decision-cycle order is sized in dollars (`usd`, stashed in `value` until
+    fill); a direct share order passes `shares` with usd=0. Shares are (re)computed at fill price."""
     if not _ensure_ready():
         return 0
     try:
         with db_session() as session:
-            r = TwinTradeRecord(ticker=ticker.upper(), action=action, shares=shares,
+            r = TwinTradeRecord(ticker=ticker.upper(), action=action, shares=shares, value=usd,
                                 reasoning=reasoning[:4000], conviction=conviction, status=status,
+                                critic_note=critic_note[:4000],
+                                tactic=tactic[:60], horizon=horizon[:80], thesis=thesis[:4000],
+                                exit_rule=exit_rule[:4000], review_after_days=review_after_days,
                                 decided_at=datetime.now(timezone.utc))
             session.add(r)
             session.flush()
@@ -1269,15 +1300,39 @@ def pending_twin_trades() -> list[dict]:
         return []
     try:
         with db_session() as session:
-            rows = session.execute(select(TwinTradeRecord).where(
-                TwinTradeRecord.status == "pending").order_by(TwinTradeRecord.decided_at)).scalars().all()
+            rows = session.execute(select(TwinTradeRecord).where(TwinTradeRecord.status == "pending")
+                                   .order_by(TwinTradeRecord.decided_at, TwinTradeRecord.id)).scalars().all()
             return [{"id": r.id, "ticker": r.ticker, "action": r.action, "shares": r.shares,
-                     "reasoning": r.reasoning, "conviction": r.conviction} for r in rows]
+                     "value": r.value, "reasoning": r.reasoning, "conviction": r.conviction,
+                     "critic_note": r.critic_note,
+                     "tactic": r.tactic, "horizon": r.horizon, "thesis": r.thesis,
+                     "exit_rule": r.exit_rule, "review_after_days": r.review_after_days,
+                     "status": r.status,
+                     "decided_at": r.decided_at.isoformat() if r.decided_at else ""} for r in rows]
     except Exception:
         return []
 
 
-def fill_twin_trade(trade_id: int, price: float, value: float) -> None:
+def cancel_twin_trades(trade_ids: list[int]) -> int:
+    """Mark queued Twin orders canceled. Used when an off-hours decision is superseded by a newer
+    queued batch, so the next market open cannot fill stale duplicate orders."""
+    if not _ensure_ready() or not trade_ids:
+        return 0
+    try:
+        with db_session() as session:
+            rows = session.execute(select(TwinTradeRecord).where(TwinTradeRecord.id.in_(trade_ids))).scalars().all()
+            n = 0
+            for r in rows:
+                if r.status == "pending":
+                    r.status = "canceled"
+                    n += 1
+            return n
+    except Exception:
+        return 0
+
+
+def fill_twin_trade(trade_id: int, price: float, value: float, shares: float | None = None,
+                    bench_entry_price: float = 0.0) -> None:
     if not _ensure_ready():
         return
     try:
@@ -1287,6 +1342,11 @@ def fill_twin_trade(trade_id: int, price: float, value: float) -> None:
                 r.status = "filled"
                 r.price = price
                 r.value = value
+                if shares is not None:
+                    r.shares = shares   # the actual filled share count (dollar orders start at 0)
+                if bench_entry_price > 0:
+                    r.bench_entry_price = bench_entry_price
+                    r.bench_last_price = bench_entry_price
                 r.filled_at = datetime.now(timezone.utc)
     except Exception:
         return
@@ -1298,14 +1358,76 @@ def recent_twin_trades(limit: int = 60) -> list[dict]:
     try:
         with db_session() as session:
             rows = session.execute(select(TwinTradeRecord).order_by(
-                desc(TwinTradeRecord.decided_at)).limit(limit)).scalars().all()
+                desc(TwinTradeRecord.decided_at), desc(TwinTradeRecord.id)).limit(limit)).scalars().all()
             return [{"id": r.id, "ticker": r.ticker, "action": r.action, "shares": r.shares,
                      "price": r.price, "value": r.value, "reasoning": r.reasoning,
-                     "conviction": r.conviction, "status": r.status,
+                     "conviction": r.conviction, "critic_note": r.critic_note,
+                     "tactic": r.tactic, "horizon": r.horizon,
+                     "thesis": r.thesis, "exit_rule": r.exit_rule,
+                     "review_after_days": r.review_after_days,
+                     "bench_entry_price": r.bench_entry_price,
+                     "bench_last_price": r.bench_last_price,
+                     "review_status": r.review_status,
+                     "review_return_pct": r.review_return_pct,
+                     "review_alpha_pct": r.review_alpha_pct,
+                     "review_note": r.review_note,
+                     "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else "",
+                     "status": r.status,
                      "decided_at": r.decided_at.isoformat() if r.decided_at else "",
                      "filled_at": r.filled_at.isoformat() if r.filled_at else ""} for r in rows]
     except Exception:
         return []
+
+
+def due_twin_review_trades(limit: int = 50) -> list[dict]:
+    """Filled Twin trades whose configured review window has elapsed."""
+    if not _ensure_ready():
+        return []
+    now = datetime.now(timezone.utc)
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(TwinTradeRecord)
+                .where(TwinTradeRecord.status == "filled")
+                .where(TwinTradeRecord.review_status != "reviewed")
+                .order_by(TwinTradeRecord.filled_at, TwinTradeRecord.id)
+                .limit(limit)
+            ).scalars().all()
+            out = []
+            for r in rows:
+                if not r.filled_at:
+                    continue
+                filled = r.filled_at if r.filled_at.tzinfo else r.filled_at.replace(tzinfo=timezone.utc)
+                if now - filled < timedelta(days=max(1, int(r.review_after_days or 7))):
+                    continue
+                out.append({"id": r.id, "ticker": r.ticker, "action": r.action, "shares": r.shares,
+                            "price": r.price, "value": r.value, "reasoning": r.reasoning,
+                            "conviction": r.conviction, "tactic": r.tactic, "horizon": r.horizon,
+                            "review_after_days": r.review_after_days,
+                            "bench_entry_price": r.bench_entry_price,
+                            "filled_at": r.filled_at.isoformat() if r.filled_at else ""})
+            return out
+    except Exception:
+        return []
+
+
+def save_twin_review(trade_id: int, last_price: float, bench_last_price: float,
+                     return_pct: float, alpha_pct: float, note: str) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.get(TwinTradeRecord, trade_id)
+            if not r:
+                return
+            r.bench_last_price = bench_last_price
+            r.review_return_pct = return_pct
+            r.review_alpha_pct = alpha_pct
+            r.review_note = note[:4000]
+            r.review_status = "reviewed"
+            r.reviewed_at = datetime.now(timezone.utc)
+    except Exception:
+        return
 
 
 def add_twin_equity_point(value: float, cash: float, positions_value: float) -> None:
@@ -1329,6 +1451,29 @@ def twin_equity_curve(limit: int = 400) -> list[dict]:
             rows = list(reversed(rows))   # oldest -> newest for charting
             return [{"at": r.at.isoformat() if r.at else "", "value": r.value,
                      "cash": r.cash, "positions_value": r.positions_value} for r in rows]
+    except Exception:
+        return []
+
+
+def real_equity_curve(source: str, since_iso: str | None = None, limit: int = 400) -> list[dict]:
+    """The real account's value over time (from portfolio_snapshots) — the 'you' line in the
+    You-vs-Autopilot race. Filtered to since inception so both lines share a start."""
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            stmt = select(PortfolioSnapshot)
+            if source:
+                stmt = stmt.where(PortfolioSnapshot.source == source)
+            if since_iso:
+                try:
+                    stmt = stmt.where(PortfolioSnapshot.captured_at >= datetime.fromisoformat(since_iso))
+                except Exception:
+                    pass
+            rows = session.execute(stmt.order_by(desc(PortfolioSnapshot.captured_at)).limit(limit)).scalars().all()
+            rows = list(reversed(rows))   # oldest -> newest for charting
+            return [{"at": r.captured_at.isoformat() if r.captured_at else "", "value": r.total_value}
+                    for r in rows]
     except Exception:
         return []
 

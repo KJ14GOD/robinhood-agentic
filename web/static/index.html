@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Signal · Research Engine</title>
-<link rel="stylesheet" href="/static/style.css?v=66" />
+<link rel="stylesheet" href="/static/style.css?v=68" />
 </head>
 <body>
 <div id="app">
@@ -34,6 +34,7 @@
     <button class="tab" data-tab="memory">Memory</button>
     <button class="tab" data-tab="shadow">Scorecard</button>
     <button class="tab" data-tab="evals">Evals</button>
+    <button class="tab" data-tab="autopilot">Autopilot</button>
     <button class="tab" data-tab="profile">Settings</button>
   </nav>
 
@@ -221,6 +222,13 @@
       <div class="eval-list" id="evalList"></div>
     </section>
 
+    <!-- AUTOPILOT: the autonomous paper fund cloned from your real book -->
+    <section id="autopilot" class="panel">
+      <div class="row between"><h2>Autopilot</h2><button class="ghost" id="apRefresh">Refresh</button></div>
+      <p class="sub">A paper fund cloned once from your real account, trading itself to pursue your plan — same starting money and stocks, fixed capital, every move its own call. It races your real performance so you can see whether an agent runs your money better than you do.</p>
+      <div id="apBody"></div>
+    </section>
+
     <!-- SETTINGS -->
     <section id="profile" class="panel">
       <div class="row between"><h2>Settings</h2><button class="ghost" id="learnBtn">↻ Learn from holdings</button></div>
@@ -234,6 +242,6 @@
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
   <div id="toast" class="toast hidden"></div>
 </div>
-<script src="/static/app.js?v=66"></script>
+<script src="/static/app.js?v=68"></script>
 </body>
 </html>

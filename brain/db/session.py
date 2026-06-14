@@ -40,6 +40,19 @@ def init_db() -> None:
 # this is a no-op there.
 _ADDITIVE_COLUMNS = [
     "ALTER TABLE missions ADD COLUMN IF NOT EXISTS last_seeded_at TIMESTAMP WITH TIME ZONE",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS tactic VARCHAR(60) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS critic_note TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS horizon VARCHAR(80) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS thesis TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS exit_rule TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_after_days INTEGER DEFAULT 7",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS bench_entry_price DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS bench_last_price DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_status VARCHAR(20) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_return_pct DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_alpha_pct DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_note TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE",
 ]
 
 

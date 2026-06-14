@@ -556,3 +556,34 @@ class JudgeAssessment(BaseModel):
         description="The load-bearing claims and whether each is actually supported by the provided evidence.")
     rationale: str = Field(description="2-4 sentences of error analysis: what's strong, what's weak, and why this verdict.")
     fix: str = Field(default="", description="If not 'good': the single most important correction to make. Empty when good.")
+
+
+# --------------------------------------------------------------------------- #
+# Autopilot (the Twin) — the autonomous fund's own trade decisions
+# --------------------------------------------------------------------------- #
+class TwinMove(BaseModel):
+    """One trade Autopilot decides to make this cycle, sized in dollars."""
+    ticker: str
+    action: Literal["buy", "add", "trim", "sell", "hold"]
+    usd: float = Field(default=0.0, description="Dollars to buy/add or to sell/trim at the next fill. 0 for hold.")
+    reasoning: str = Field(description="Why this move now — grounded in the signals and the mandate, 1-2 sentences.")
+    conviction: int = Field(default=5, ge=1, le=10)
+    tactic: str = Field(
+        default="",
+        description="Strategy tag: rebalance, risk_reduction, momentum_continuation, pullback_in_uptrend, valuation_mean_reversion, catalyst_trade, long_term_compounder, theme_exposure, defensive_rotation, liquidity_cleanup.",
+    )
+    thesis: str = Field(default="", description="Your standing thesis on this name after the move (why you hold it).")
+    horizon: str = Field(default="", description="How long you intend to hold: trade, swing, 1-4 weeks, 3-12 months, or multi-year/core.")
+    exit_rule: str = Field(default="", description="The concrete thing that would make you sell it.")
+    review_after_days: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description="When the self-review loop should judge this move. Short trades use days/weeks; core ideas use months.",
+    )
+
+
+class TwinDecision(BaseModel):
+    """Autopilot's output for one decision cycle — a plain-language read plus the moves (maybe none)."""
+    summary: str = Field(description="One line: what you're doing this cycle and why. 'Holding — nothing worth a trade' is valid.")
+    moves: list[TwinMove] = Field(default_factory=list, description="The trades to make now; empty if standing pat.")

@@ -9,10 +9,29 @@ The decision-making — what to trade and why — is a separate brain that queue
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from .. import config, llm, research_state
 from ..data import market_clock
-from ..data.prices import get_quote, get_quotes
+from ..data.prices import ScreenRow, get_quote, get_quotes, get_signals_many, screen_universe
+from ..data.universe import screening_universe
 from ..db import repository as db_repo
+from ..models import TwinDecision
 from ..portfolio import get_portfolio
+
+_VALID_TACTICS = {
+    "rebalance",
+    "risk_reduction",
+    "momentum_continuation",
+    "pullback_in_uptrend",
+    "valuation_mean_reversion",
+    "catalyst_trade",
+    "long_term_compounder",
+    "theme_exposure",
+    "defensive_rotation",
+    "liquidity_cleanup",
+}
+_MIN_ORDER_USD = 1.0
 
 
 def state() -> dict | None:
@@ -88,6 +107,27 @@ def value(refresh: bool = False) -> dict:
             "positions": out_positions, "inception_value": f.get("inception_value", 0.0)}
 
 
+def _mark_real_portfolio(pf, refresh: bool = False) -> dict:
+    """Mark the real portfolio with the same quote source used for the Twin.
+
+    Robinhood's reported equity can include a different after-hours/24h mark than our quote feed.
+    The race needs apples-to-apples pricing, so the compare view values both books from the same
+    quote map and falls back to Robinhood's holding price only when a quote is missing.
+    """
+    cash = float(pf.cash or 0.0)
+    qmap = _quote_map([h.ticker for h in pf.holdings], refresh=refresh)
+    holdings, positions_value = [], 0.0
+    for h in pf.holdings:
+        price = qmap.get(h.ticker.upper(), 0.0) or float(h.current_price or 0.0)
+        mv = float(h.quantity or 0.0) * price
+        positions_value += mv
+        holdings.append({"ticker": h.ticker, "shares": h.quantity, "price": price, "market_value": mv})
+    total = cash + positions_value
+    for h in holdings:
+        h["weight"] = (h["market_value"] / total * 100.0) if total > 0 else 0.0
+    return {"value": total, "cash": cash, "positions_value": positions_value, "holdings": holdings}
+
+
 def snapshot_equity(refresh: bool = False) -> dict:
     """Mark to market and record an equity-curve point. Returns the value dict."""
     v = value(refresh=refresh)
@@ -102,25 +142,69 @@ def queue_trade(ticker: str, action: str, shares: float, reasoning: str = "", co
                                   reasoning=reasoning, conviction=conviction)
 
 
+def _pending_time(row: dict) -> datetime:
+    try:
+        dt = datetime.fromisoformat(row.get("decided_at", ""))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:  # noqa: BLE001
+        return datetime.now(timezone.utc)
+
+
+def _current_pending_trades() -> list[dict]:
+    """Return the pending batch that should remain live.
+
+    If the app queued multiple off-hours decision cycles before the market opened, the older
+    batches are stale. Keep the latest cluster of pending orders and cancel the rest so the next
+    market open cannot execute duplicate rebalances.
+    """
+    pending = db_repo.pending_twin_trades()
+    if len(pending) <= 1:
+        return pending
+    rows = sorted(pending, key=lambda r: (_pending_time(r), int(r.get("id") or 0)))
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    last_ts: datetime | None = None
+    for row in rows:
+        ts = _pending_time(row)
+        if current and last_ts and (ts - last_ts).total_seconds() > 120:
+            batches.append(current)
+            current = []
+        current.append(row)
+        last_ts = ts
+    if current:
+        batches.append(current)
+    if len(batches) <= 1:
+        return rows
+    stale_ids = [int(r["id"]) for batch in batches[:-1] for r in batch if r.get("id")]
+    db_repo.cancel_twin_trades(stale_ids)
+    return batches[-1]
+
+
 def execute_pending(force: bool = False, refresh: bool = True) -> list[dict]:
     """Fill queued orders at live prices — ONLY while the market is open (unless forced, e.g. a
-    manual run or a test). Fixed capital: buys are clamped to cash on hand, sells to shares held.
-    Updates positions, cash, and trade status; records a post-trade equity point. Returns fills."""
+    manual run or a test). Orders carry a DOLLAR intent (`value`) and are priced HERE, at fill, so
+    a transient quote failure just leaves the order queued to retry next tick rather than losing it.
+    Fixed capital: buys clamp to cash on hand, sells to shares held (long-only). Returns the fills."""
     if not is_running():
         return []
     if not force and not market_clock.is_market_open():
         return []   # off-hours: orders stay queued for the next open
-    pending = db_repo.pending_twin_trades()
+    pending = _current_pending_trades()
     if not pending:
         return []
     cash = float((state() or {}).get("cash") or 0.0)
     qmap = _quote_map([t["ticker"] for t in pending], refresh=refresh)
+    bench_price = get_quote("SPY", refresh=refresh).price or 0.0
     fills: list[dict] = []
     for t in pending:
-        tk, action, want = t["ticker"], t["action"], float(t["shares"] or 0.0)
+        tk, action = t["ticker"], t["action"]
+        usd = float(t.get("value") or 0.0)          # dollar intent (0 for a direct share order)
         price = qmap.get(tk, 0.0)
-        if price <= 0 or want <= 0:
-            db_repo.fill_twin_trade(t["id"], price=price, value=0.0)   # un-fillable — mark resolved
+        if price <= 0:
+            continue   # couldn't price it right now — leave queued, retry on a later tick
+        want = (usd / price) if usd > 0 else float(t.get("shares") or 0.0)
+        if want <= 1e-9:
+            db_repo.fill_twin_trade(t["id"], price=price, value=0.0)   # nothing to do — resolve
             continue
         pos = db_repo.get_twin_position(tk)
         if action in ("buy", "add"):
@@ -137,7 +221,8 @@ def execute_pending(force: bool = False, refresh: bool = True) -> list[dict]:
             else:
                 db_repo.upsert_twin_position(tk, shares=shares, avg_cost=price,
                                              thesis=(t.get("reasoning") or "")[:2000])
-            db_repo.fill_twin_trade(t["id"], price=price, value=spend)
+            db_repo.fill_twin_trade(t["id"], price=price, value=spend, shares=shares,
+                                    bench_entry_price=bench_price)
             fills.append({**t, "filled_shares": shares, "price": price, "value": spend})
         elif action in ("sell", "trim"):
             held = pos["shares"] if pos else 0.0
@@ -152,7 +237,8 @@ def execute_pending(force: bool = False, refresh: bool = True) -> list[dict]:
                 db_repo.delete_twin_position(tk)
             else:
                 db_repo.upsert_twin_position(tk, shares=left, avg_cost=pos["avg_cost"])
-            db_repo.fill_twin_trade(t["id"], price=price, value=proceeds)
+            db_repo.fill_twin_trade(t["id"], price=price, value=proceeds, shares=shares,
+                                    bench_entry_price=bench_price)
             fills.append({**t, "filled_shares": shares, "price": price, "value": proceeds})
         else:
             db_repo.fill_twin_trade(t["id"], price=price, value=0.0)
@@ -172,7 +258,14 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
     pf = real_pf if real_pf is not None else get_portfolio()
     v0 = float(f.get("inception_value") or 0.0)
     twin_now = v["value"]
+    real_mark = _mark_real_portfolio(pf, refresh=refresh)
     real_now = float(pf.total_value or 0.0)
+    pending = _current_pending_trades()
+    pending_buy = sum(float(t.get("value") or 0.0) for t in pending
+                      if t.get("action") in ("buy", "add"))
+    pending_sell = sum(float(t.get("value") or 0.0) for t in pending
+                       if t.get("action") in ("sell", "trim"))
+    phase = market_clock.session_phase()
 
     def ret(now: float) -> float:
         return ((now - v0) / v0 * 100.0) if v0 > 0 else 0.0
@@ -184,10 +277,412 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
         "twin": {"value": twin_now, "cash": v["cash"], "return_pct": ret(twin_now),
                  "positions": v["positions"]},
         "real": {"value": real_now, "cash": float(pf.cash or 0.0), "return_pct": ret(real_now),
+                 "positions_value": real_mark["positions_value"],
                  "holdings": [{"ticker": h.ticker, "shares": h.quantity, "market_value": h.market_value,
                                "weight": (h.market_value / real_now * 100.0) if real_now > 0 else 0.0}
-                              for h in pf.holdings]},
+                              for h in pf.holdings],
+                 "marked_value": real_mark["value"],
+                 "pricing_note": "Displayed balance uses broker reported equity; marked_value uses the Autopilot quote source."},
         "edge_pct": ret(twin_now) - ret(real_now),   # how much the Twin is beating you by
+        "market": {"phase": phase, "is_open": phase == "open",
+                   "next_open": market_clock.next_open().isoformat() if phase != "open" else ""},
+        "pending": {"count": len(pending), "buy_value": pending_buy, "sell_value": pending_sell,
+                    "gross_value": pending_buy + pending_sell,
+                    "oldest_decided_at": pending[0].get("decided_at", "") if pending else ""},
+        "valuation": {"starting_value": v0, "marked_value": twin_now,
+                      "marked_at": market_clock.now_et().isoformat(),
+                      "pending_applied": False},
         "equity_curve": db_repo.twin_equity_curve(),
-        "trades": db_repo.recent_twin_trades(40),
+        "real_equity_curve": db_repo.real_equity_curve(getattr(pf, "source", "") or "",
+                                                       since_iso=f.get("inception_at")),
+        "trades": db_repo.recent_twin_trades(200),
     }
+
+
+# --------------------------------------------------------------------------- #
+# The decision brain — Autopilot deciding its own trades (Stage 2)
+# --------------------------------------------------------------------------- #
+def _screen_score(r: ScreenRow) -> float:
+    if r.price <= 0:
+        return -1e9
+    s = r.ret_3m_pct * 1.0 + r.ret_6m_pct * 0.5
+    s += 15 if r.above_50d else -10
+    s += 15 if r.above_200d else -10
+    if 45 <= r.rsi_14 <= 72:
+        s += 8
+    elif r.rsi_14 > 82:
+        s -= 18
+    return s
+
+
+def _candidate_universe(held: set[str]) -> dict:
+    """Grounded names Autopilot may buy beyond its book.
+
+    This is intentionally broader than the user's current catalog: memory/mission names plus a
+    ranked broad-market screen. The LLM still gets a finite grounded list, not permission to invent
+    tickers.
+    """
+    uni: dict[str, str] = {}
+    try:
+        st = research_state.load_state()
+        for w in st.watchlist:
+            uni.setdefault(w.ticker.upper(), f"watchlist: {(w.reason or 'tracked')[:80]}")
+        for tk, th in st.theses.items():
+            if th.status in ("active", "review"):
+                uni.setdefault(tk.upper(), f"thesis ({th.status}): {th.thesis[:80]}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for m in db_repo.all_missions(status="active"):
+            for c in m.candidates:
+                if c.label == "REJECT":
+                    continue
+                uni.setdefault(c.ticker.upper(), f"mission {m.title} / {c.label}: {c.reason[:90]}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for e in db_repo.recent_events(limit=80, within_hours=96):
+            tk = (e.get("ticker") or "").upper()
+            if tk and tk not in held:
+                uni.setdefault(tk, f"recent {e.get('event_type') or 'event'}: {(e.get('title') or '')[:90]}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        exclude = list(held | set(uni))
+        rows = screen_universe(screening_universe(exclude=exclude))
+        rows.sort(key=_screen_score, reverse=True)
+        for r in rows[:40]:
+            uni.setdefault(
+                r.ticker.upper(),
+                f"broad screen: 3m {r.ret_3m_pct:+.0f}%, 6m {r.ret_6m_pct:+.0f}%, "
+                f"RSI {r.rsi_14:.0f}, vol {r.vol_annualized_pct:.0f}%",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+    for t in held:
+        uni.pop(t, None)   # held names live in the book block, not the candidate list
+    return dict(list(uni.items())[:60])
+
+
+def _sig_line(t: str, s) -> str:
+    bits = [f"${s.price:.2f}"]
+    if getattr(s, "ret_3m_pct", None) is not None:
+        bits.append(f"3m {s.ret_3m_pct:+.0f}%")
+    bits.append(f"{'>' if getattr(s, 'above_200d', False) else '<'}200d")
+    if getattr(s, "rsi_14", 0):
+        bits.append(f"RSI {s.rsi_14:.0f}")
+    if getattr(s, "pe", 0) and s.pe > 0:
+        bits.append(f"P/E {s.pe:.0f}")
+    return f"- {t}: " + ", ".join(bits)
+
+
+def _signals_block(names: list[str]) -> str:
+    if not names:
+        return "(no names)"
+    try:
+        sigs = get_signals_many(names)
+    except Exception:  # noqa: BLE001
+        return "(signals unavailable this cycle)"
+    out = [_sig_line(t, sigs[t]) for t in names if sigs.get(t) and getattr(sigs[t], "price", 0)]
+    return "\n".join(out) or "(signals unavailable this cycle)"
+
+
+def _events_block(names: list[str]) -> str:
+    nset = {n.upper() for n in names}
+    try:
+        evs = db_repo.recent_events(limit=50, within_hours=72)
+    except Exception:  # noqa: BLE001
+        return ""
+    lines = [f"- {e['ticker']}: {e['title']}" for e in evs
+             if e.get("ticker", "").upper() in nset and e.get("title")]
+    return "\n".join(dict.fromkeys(lines))[:1400]
+
+
+def review_due_trades(refresh: bool = False) -> list[dict]:
+    """Stage 3 self-review: score filled Twin trades after their review window matures.
+
+    This is deterministic policy learning, not an LLM judgement. It records whether each tactic
+    produced benchmark-relative alpha at the declared horizon, then future decisions read the
+    aggregate policy memory.
+    """
+    due = db_repo.due_twin_review_trades()
+    if not due:
+        return []
+    qmap = _quote_map([t["ticker"] for t in due] + ["SPY"], refresh=refresh)
+    bench_last = qmap.get("SPY", 0.0)
+    reviewed = []
+    for t in due:
+        entry = float(t.get("price") or 0.0)
+        last = qmap.get(t["ticker"], 0.0)
+        if entry <= 0 or last <= 0:
+            continue
+        sign = -1.0 if t.get("action") in ("sell", "trim") else 1.0
+        stock_pct = (last - entry) / entry * 100.0
+        bench_entry = float(t.get("bench_entry_price") or 0.0)
+        bench_pct = ((bench_last - bench_entry) / bench_entry * 100.0) if bench_entry > 0 and bench_last > 0 else 0.0
+        ret = sign * stock_pct
+        alpha = sign * (stock_pct - bench_pct) if bench_entry > 0 and bench_last > 0 else ret
+        verdict = "worked" if alpha > 0 else "lagged"
+        tactic = t.get("tactic") or t.get("action") or "trade"
+        note = (f"{tactic} {verdict}: {t['ticker']} returned {ret:+.1f}% "
+                f"vs SPY-adjusted alpha {alpha:+.1f}% after {t.get('review_after_days') or 7}d.")
+        db_repo.save_twin_review(t["id"], last_price=last, bench_last_price=bench_last,
+                                 return_pct=ret, alpha_pct=alpha, note=note)
+        reviewed.append({**t, "last_price": last, "return_pct": ret, "alpha_pct": alpha, "note": note})
+    return reviewed
+
+
+def _policy_memory() -> str:
+    stats = _policy_stats()
+    if not stats:
+        return "No reviewed Autopilot trades yet. Be conservative, explicit, and gather evidence."
+    lines = []
+    for tactic, st in sorted(stats.items(), key=lambda kv: kv[1]["count"], reverse=True)[:8]:
+        instruction = "lean in modestly" if st["avg_alpha"] > 1 and st["win_rate"] >= 50 else "size down or demand better evidence"
+        lines.append(f"- {tactic}: {st['count']} reviewed, avg alpha {st['avg_alpha']:+.1f}%, "
+                     f"win rate {st['win_rate']:.0f}% — {instruction}.")
+    return "\n".join(lines)
+
+
+def _policy_stats() -> dict[str, dict]:
+    rows = [r for r in db_repo.recent_twin_trades(500)
+            if r.get("status") == "filled" and r.get("review_status") == "reviewed"]
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(r.get("tactic") or r.get("action") or "trade", []).append(r)
+    out: dict[str, dict] = {}
+    for tactic, rs in groups.items():
+        alphas = [float(r.get("review_alpha_pct") or 0.0) for r in rs]
+        if not alphas:
+            continue
+        wins = sum(1 for a in alphas if a > 0)
+        out[tactic] = {
+            "count": len(alphas),
+            "avg_alpha": sum(alphas) / len(alphas),
+            "win_rate": wins / len(alphas) * 100.0,
+        }
+    return out
+
+
+def _move_key(m, idx: int) -> str:
+    return f"{idx}:{m.ticker.upper()}:{m.action}"
+
+
+def _default_review_days(m) -> int:
+    text = f"{m.horizon} {m.tactic}".lower()
+    if any(x in text for x in ("core", "multi-year", "long_term", "compounder", "12 months")):
+        return 90
+    if any(x in text for x in ("3-12", "months")):
+        return 45
+    if "swing" in text or "1-4" in text:
+        return 14
+    if "trade" in text or "catalyst" in text:
+        return 5
+    return max(1, int(m.review_after_days or 7))
+
+
+def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[TwinDecision, dict[str, str], list[tuple]]:
+    """Deterministic risk/capital governor between LLM proposal and queued orders."""
+    held = {p["ticker"].upper(): p for p in v.get("positions", [])}
+    allowed = set(universe) | set(held)
+    max_pct = max(1.0, float(getattr(profile, "max_single_position_pct", 15.0) or 15.0))
+    total_value = max(float(v.get("value") or 0.0), 1.0)
+    policy = _policy_stats()
+    accepted: list[tuple[int, object]] = []
+    rejected: list[tuple[object, str]] = []
+    notes: dict[str, str] = {}
+
+    for idx, m in enumerate(decision.moves):
+        m.ticker = m.ticker.upper().strip()
+        m.action = m.action.lower()
+        m.usd = max(0.0, float(m.usd or 0.0))
+        m.tactic = (m.tactic or "unspecified").strip().lower().replace(" ", "_")
+        if m.tactic not in _VALID_TACTICS:
+            notes[_move_key(m, idx)] = f"Critic normalized unrecognized tactic '{m.tactic}' to theme_exposure."
+            m.tactic = "theme_exposure"
+        if m.review_after_days == 7:
+            m.review_after_days = _default_review_days(m)
+
+        if m.action == "hold":
+            accepted.append((idx, m))
+            continue
+        if m.usd < _MIN_ORDER_USD:
+            rejected.append((m, "Rejected by critic: dollar size was too small to queue."))
+            continue
+        if m.action in ("buy", "add") and m.ticker not in allowed:
+            rejected.append((m, "Rejected by critic: ticker was not in the grounded candidate universe."))
+            continue
+        if m.action in ("sell", "trim") and m.ticker not in held:
+            rejected.append((m, "Rejected by critic: Autopilot does not own shares to sell/trim."))
+            continue
+        if m.action in ("sell", "trim"):
+            max_sell = float(held[m.ticker].get("market_value") or 0.0)
+            if m.usd > max_sell:
+                notes[_move_key(m, idx)] = f"Critic capped sell/trim from ${m.usd:,.0f} to owned value ${max_sell:,.0f}."
+                m.usd = max_sell
+        if m.action in ("buy", "add"):
+            cur = float(held.get(m.ticker, {}).get("market_value") or 0.0)
+            room = max(0.0, total_value * max_pct / 100.0 - cur)
+            if room <= 0:
+                rejected.append((m, f"Rejected by critic: would breach {max_pct:.0f}% single-position cap."))
+                continue
+            if m.usd > room:
+                notes[_move_key(m, idx)] = f"Critic capped buy/add from ${m.usd:,.0f} to ${room:,.0f} position room."
+                m.usd = room
+            st = policy.get(m.tactic)
+            if st and st["count"] >= 3 and st["avg_alpha"] < -6 and st["win_rate"] < 34:
+                rejected.append((m, f"Rejected by critic: tactic {m.tactic} has weak reviewed results ({st['avg_alpha']:+.1f}% avg alpha)."))
+                continue
+            if st and st["count"] >= 2 and st["avg_alpha"] < -2:
+                old = m.usd
+                m.usd *= 0.5
+                prior = notes.get(_move_key(m, idx), "")
+                notes[_move_key(m, idx)] = (prior + " " if prior else "") + (
+                    f"Critic halved size from ${old:,.0f} to ${m.usd:,.0f}; tactic {m.tactic} has weak reviewed results."
+                )
+        if m.usd < _MIN_ORDER_USD and m.action != "hold":
+            rejected.append((m, "Rejected by critic: adjusted size fell below minimum order."))
+            continue
+        accepted.append((idx, m))
+
+    sell_cash = sum(m.usd for _, m in accepted if m.action in ("sell", "trim"))
+    available = float(v.get("cash") or 0.0) + sell_cash
+    buys = [(idx, m) for idx, m in accepted if m.action in ("buy", "add")]
+    total_buy = sum(m.usd for _, m in buys)
+    if total_buy > available > 0:
+        scale = available / total_buy
+        for idx, m in buys:
+            old = m.usd
+            m.usd *= scale
+            prior = notes.get(_move_key(m, idx), "")
+            notes[_move_key(m, idx)] = (prior + " " if prior else "") + (
+                f"Critic scaled buy/add from ${old:,.0f} to ${m.usd:,.0f} to respect fixed capital."
+            )
+    elif total_buy > available:
+        for _, m in buys:
+            rejected.append((m, "Rejected by critic: no cash or sale proceeds available to fund buy/add."))
+        accepted = [(idx, m) for idx, m in accepted if m.action not in ("buy", "add")]
+
+    final_moves = [m for _, m in accepted if m.action == "hold" or m.usd >= _MIN_ORDER_USD]
+    summary = decision.summary
+    if rejected or notes:
+        summary = (summary + f" Critic adjusted {len(notes)} move(s), rejected {len(rejected)}.").strip()
+    return TwinDecision(summary=summary, moves=final_moves), notes, rejected
+
+
+def _book_block(v: dict) -> str:
+    lines = [f"Total ${v['value']:,.0f} · cash ${v['cash']:,.0f} · {len(v['positions'])} positions"]
+    for p in v["positions"]:
+        intent = []
+        if p.get("thesis"):
+            intent.append(f"thesis: {p['thesis'][:120]}")
+        if p.get("horizon"):
+            intent.append(f"horizon: {p['horizon']}")
+        if p.get("exit_rule"):
+            intent.append(f"exit: {p['exit_rule'][:80]}")
+        lines.append(f"- {p['ticker']}: {p['shares']:.2f} sh, ${p['market_value']:,.0f} "
+                     f"({p['return_pct']:+.0f}% since you bought){' · ' + '; '.join(intent) if intent else ''}")
+    return "\n".join(lines)
+
+
+def _decide_prompt(v: dict, mandate_block: str, profile, universe: dict,
+                   sig_block: str, events_block: str, policy_block: str) -> str:
+    cand = "\n".join(f"- {t}: {ctx}" for t, ctx in universe.items()) or "(none beyond your book)"
+    return f"""You are AUTOPILOT — an autonomous fund manager running a real paper portfolio. You decide the
+trades and nobody approves them. Your job: pursue the mandate below and beat the user's real account.
+FIXED CAPITAL — to buy you must use cash already in the Twin or sell/trim something first. You may
+not invent deposits, assume extra buying power, or spend money that is not shown. Long-only (no shorts).
+
+{mandate_block or 'No mandate is set — manage prudently toward steady long-term growth and capital preservation.'}
+
+INVESTOR PROFILE (secondary to the mandate): {profile.describe()}
+
+YOUR BOOK:
+{_book_block(v)}
+
+CANDIDATES you may buy (grounded from memory, missions, and broad market screening — choose from
+this list only; never invented tickers):
+{cand}
+
+QUANTITATIVE SIGNALS:
+{sig_block}
+
+RECENT CATALYSTS / EVENTS:
+{events_block or '(nothing notable)'}
+
+AUTOPILOT POLICY MEMORY (reviewed paper trades only):
+{policy_block}
+
+Decide your moves for this cycle. You set the pace — trade as much or as little as warranted, including
+nothing at all. Size each move in DOLLARS. Sells/trims free up cash for buys; never spend more cash than
+you have (sell first if you must). Take profit or cut losers per your own exit rules; don't churn for its
+own sake. For every move, classify the tactic, horizon, review_after_days, updated thesis, and exit
+rule. Ground every move in the signals, policy memory, and mandate — this is real performance you'll
+be judged on."""
+
+
+def _apply(decision: TwinDecision, critic_notes: dict[str, str] | None = None,
+           rejected: list[tuple] | None = None) -> list[dict]:
+    """Queue the decision's moves as DOLLAR orders (sells/trims first so they fund buys within the
+    same fill pass) and refresh per-position intent on names already held. No pricing here — orders
+    are priced at fill, so a transient quote failure never loses a decision. Returns queued moves."""
+    order = {"sell": 0, "trim": 1, "add": 2, "buy": 3, "hold": 9}
+    queued = []
+    critic_notes = critic_notes or {}
+    for m, note in (rejected or []):
+        if (m.usd or 0) > 0:
+            db_repo.add_twin_trade(m.ticker, m.action, 0.0, usd=float(m.usd),
+                                   reasoning=m.reasoning or m.thesis, conviction=m.conviction,
+                                   status="canceled", tactic=m.tactic, horizon=m.horizon,
+                                   thesis=m.thesis, exit_rule=m.exit_rule,
+                                   review_after_days=m.review_after_days, critic_note=note)
+    for idx, m in sorted(enumerate(decision.moves), key=lambda x: order.get(x[1].action, 5)):
+        db_repo.set_twin_intent(m.ticker, thesis=m.thesis or None, horizon=m.horizon or None,
+                                exit_rule=m.exit_rule or None)
+        if m.action == "hold" or (m.usd or 0) <= 0:
+            continue
+        db_repo.add_twin_trade(m.ticker, m.action, 0.0, usd=float(m.usd),
+                               reasoning=m.reasoning or m.thesis, conviction=m.conviction,
+                               tactic=m.tactic, horizon=m.horizon, thesis=m.thesis,
+                               exit_rule=m.exit_rule, review_after_days=m.review_after_days,
+                               critic_note=critic_notes.get(_move_key(m, idx), ""))
+        queued.append({"ticker": m.ticker.upper(), "action": m.action, "usd": m.usd})
+    return queued
+
+
+def decide(profile) -> TwinDecision | None:
+    """Autopilot's autonomous decision cycle: read the book + mandate + signals, decide moves, queue
+    them (they fill at the next open via execute_pending), and persist the decision as an audit trail
+    + cadence marker. Best-effort — a model hiccup means it simply holds this cycle."""
+    if not config.TWIN_ENABLED or not is_running():
+        return None
+    review_due_trades(refresh=False)
+    if _current_pending_trades():
+        return None
+    v = value(refresh=True)
+    held = {p["ticker"] for p in v["positions"]}
+    universe = _candidate_universe(held)
+    names = (list(held) + [t for t in universe if t not in held])[:50]
+    from .. import mandate as _mandate
+    try:
+        raw = llm.parse(
+            _decide_prompt(v, _mandate.mandate_prompt(), profile, universe,
+                           _signals_block(names), _events_block(names), _policy_memory()),
+            TwinDecision, max_tokens=2400)
+    except Exception:  # noqa: BLE001
+        return None
+    decision, critic_notes, rejected = _critic(raw, v, profile, universe)
+    _apply(decision, critic_notes=critic_notes, rejected=rejected)
+    try:
+        db_repo.save_agent_run(
+            query="Autopilot decision cycle", answer=decision.summary, kind="twin_decision",
+            steps=[{"type": "twin_decision", "summary": decision.summary,
+                    "original_moves": [m.model_dump() for m in raw.moves],
+                    "moves": [m.model_dump() for m in decision.moves],
+                    "critic_notes": critic_notes,
+                    "rejected": [{"ticker": m.ticker, "action": m.action, "usd": m.usd, "reason": note}
+                                 for m, note in rejected]}],
+            tools_used="", model=llm.MODEL)
+    except Exception:  # noqa: BLE001
+        pass
+    return decision

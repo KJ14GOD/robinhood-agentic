@@ -336,6 +336,12 @@ def twin_start():
     return {"twin": brain.twin_start()}
 
 
+@app.post("/api/twin/decide")
+def twin_decide():
+    """Force an Autopilot decision cycle now (the tab's 'run a cycle' button)."""
+    return brain.twin_decide_now()
+
+
 @app.get("/api/evals")
 def evals_overview(limit: int = Query(30, ge=1, le=100), kind: str | None = None):
     """The eval worklist + the emerging suite: reviewable traces (with any label) plus the
@@ -475,6 +481,15 @@ async def _brain_loop() -> None:
             await asyncio.to_thread(brain.run_mandate_drift)
         except Exception as e:  # noqa: BLE001
             logger.warning("mandate drift check failed: %s", e)
+        # Autopilot (the Twin): its autonomous think (gated to TWIN_DECIDE_HOURS), then fill any
+        # queued orders during market hours, then record an equity point so the race line stays live.
+        try:
+            await asyncio.to_thread(brain.twin_review_due)
+            await asyncio.to_thread(brain.run_twin_decision)
+            await asyncio.to_thread(brain.twin_execute_pending)
+            await asyncio.to_thread(brain.twin_snapshot)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("twin tick failed: %s", e)
         # Self-grading sweep: auto-score any recent reasoning trace the inline gate didn't reach
         # (mainly the autonomous re-judge path). Bounded per cycle + gated; a calm system no-ops.
         try:

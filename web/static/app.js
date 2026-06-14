@@ -107,6 +107,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
   if (t.dataset.tab === "shadow" && STATE) loadScore(true);
   if (t.dataset.tab === "evals" && STATE) loadEvals();
+  if (t.dataset.tab === "autopilot" && STATE) loadAutopilot();
   if (t.dataset.tab === "home" && STATE) { loadMandate(); renderHome(); }
 }));
 
@@ -299,6 +300,216 @@ function chartTime(s) {
     ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
     : { year: "numeric", month: "short", day: "numeric" });
 }
+
+// ---------- Autopilot (the autonomous paper fund that races your real book) ----------
+let AUTOPILOT = null;
+
+async function loadAutopilot(refresh) {
+  const box = $("#apBody");
+  if (box && !AUTOPILOT) box.innerHTML = `<div class="loading"><span class="spin"></span> Loading Autopilot…</div>`;
+  try { AUTOPILOT = await api("twin" + (refresh ? "?refresh=1" : "")); }
+  catch (e) { if (box) box.innerHTML = `<p class="muted">Could not load Autopilot.</p>`; return; }
+  renderAutopilot();
+}
+
+async function startAutopilot(btn) {
+  busy(btn, true);
+  try {
+    await api("twin/start", {});
+    toast("Autopilot launched — it just cloned your book");
+    await loadAutopilot(true);
+  } catch (e) { toast("Could not start Autopilot"); busy(btn, false); }
+}
+window.startAutopilot = startAutopilot;
+
+function renderAutopilot() {
+  const box = $("#apBody");
+  if (!box) return;
+  const c = AUTOPILOT;
+  box.innerHTML = (!c || !c.started)
+    ? apEmptyHTML()
+    : apHeroHTML(c) + apStatusHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
+}
+
+function apControlsHTML(c) {
+  const pending = c?.pending || {};
+  const market = c?.market || {};
+  const queued = pending.count ? `${pending.count} queued for ${market.is_open ? "this session" : "next open"}` : "no queued orders";
+  const session = market.is_open ? "Market open" : `Market closed${market.next_open ? ` · next open ${chartTime(market.next_open)}` : ""}`;
+  return `<div class="ap-controls">
+    <span class="ap-cadence"><strong>${esc(session)}</strong> · ${esc(queued)} · thinks every few hours, fills only during market hours.</span>
+    <button class="ap-cycle" onclick="runAutopilotCycle(this)">Run a cycle now</button>
+  </div>`;
+}
+
+async function runAutopilotCycle(btn) {
+  busy(btn, true);
+  const hadPending = (AUTOPILOT?.pending?.count || 0) > 0;
+  try {
+    AUTOPILOT = await api("twin/decide", {});   // forces a decision; may take a moment (one model call)
+    const pending = AUTOPILOT?.pending?.count || 0;
+    if (hadPending && pending) toast("Orders already queued for next open");
+    else if (pending) toast(`Autopilot queued ${pending} order${pending === 1 ? "" : "s"}`);
+    else toast("Autopilot held this cycle");
+    renderAutopilot();
+  } catch (e) { toast("Could not run a cycle"); busy(btn, false); }
+}
+window.runAutopilotCycle = runAutopilotCycle;
+
+function apEmptyHTML() {
+  const noPlan = !(MANDATE && MANDATE.statement);
+  return `<div class="ap-empty"><div class="ap-empty-card">
+    <h3>Autopilot hasn't launched yet</h3>
+    <p>It clones your account exactly — same cash, same stocks, same dollar value — then trades itself to pursue your plan. Your real account stays untouched; this one races it, using only the money it starts with.</p>
+    ${noPlan ? `<p class="ap-warn">Set your plan on Home first, so Autopilot knows what it's chasing.</p>` : ""}
+    <button class="ap-start" onclick="startAutopilot(this)">Start Autopilot</button>
+    <p class="ap-note">Starts once. From the moment you launch it, it diverges from you — there's no re-syncing.</p>
+  </div></div>`;
+}
+
+function apHeroHTML(c) {
+  const edge = c.edge_pct || 0, ahead = edge >= 0;
+  const edgeTxt = Math.abs(edge) < 0.05 ? "Dead even with you"
+    : ahead ? `Autopilot is ${pct(edge).replace("+", "")} ahead of you`
+            : `You're ahead by ${pct(-edge).replace("+", "")}`;
+  const side = (label, v, cls) => `<div class="ap-side ${cls}">
+    <span class="ap-side-lbl">${label}</span>
+    <div class="ap-side-val">${money0(v.value)}</div>
+    <div class="ap-side-ret ${(v.return_pct || 0) >= 0 ? "pos" : "neg"}">${pct(v.return_pct)}</div>
+  </div>`;
+  return `<div class="ap-hero">
+    ${side("You", c.real, "you")}
+    <div class="ap-vs">
+      <div class="ap-edge ${ahead ? "ahead" : "behind"}">${esc(edgeTxt)}</div>
+      <span class="ap-since">since ${esc(chartTime(c.inception_at))}</span>
+    </div>
+    ${side("Autopilot", c.twin, "twin")}
+  </div>`;
+}
+
+function apStatusHTML(c) {
+  const pending = c.pending || {};
+  const gross = pending.gross_value || 0;
+  const buys = pending.buy_value || 0;
+  const sells = pending.sell_value || 0;
+  const pendingLine = pending.count
+    ? `buys ${money0(buys)} / sells ${money0(sells)}`
+    : "No queued orders";
+  return `<div class="ap-status">
+    <div class="ap-stat">
+      <span>Starting value</span>
+      <strong>${money0(c.inception_value)}</strong>
+      <em>clone baseline</em>
+    </div>
+    <div class="ap-stat">
+      <span>Current marked value</span>
+      <strong>${money0(c.twin.value)}</strong>
+      <em>latest quotes, not trade fills</em>
+    </div>
+    <div class="ap-stat ${pending.count ? "queued" : ""}">
+      <span>Queued orders</span>
+      <strong>${pending.count ? `${pending.count} pending` : "None"}</strong>
+      <em>${esc(pendingLine)}${gross ? ` · ${money0(gross)} total` : ""} · not applied yet</em>
+    </div>
+  </div>`;
+}
+
+function dualLine(you, twin, w = 760, h = 180, pad = 12) {
+  const norm = (s) => (s || []).map((p) => ({ t: new Date(p.at).getTime(), v: +p.value }))
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+  const ys = norm(you), ts = norm(twin), all = [...ys, ...ts];
+  if (all.length < 2) return { empty: true };
+  const tA = all.map((p) => p.t), vA = all.map((p) => p.v);
+  const t0 = Math.min(...tA), tr = (Math.max(...tA) - t0) || 1;
+  const v0 = Math.min(...vA), vr = (Math.max(...vA) - v0) || 1;
+  const draw = (s) => s.length < 2 ? "" : s.map((p, i) => {
+    const x = pad + ((p.t - t0) / tr) * (w - pad * 2);
+    const y = h - pad - ((p.v - v0) / vr) * (h - pad * 2);
+    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return { empty: false, you: draw(ys), twin: draw(ts) };
+}
+
+function apChartHTML(c) {
+  const d = dualLine(c.real_equity_curve, c.equity_curve);
+  if (d.empty) return `<div class="ap-chart-empty">The race line builds as Autopilot runs — check back after it's been live a while.</div>`;
+  const w = 760, h = 180;
+  return `<div class="ap-chart">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      ${d.you ? `<path d="${d.you}" fill="none" stroke="var(--faint)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : ""}
+      ${d.twin ? `<path d="${d.twin}" fill="none" stroke="var(--brain)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>` : ""}
+    </svg>
+    <div class="ap-legend"><span class="lg you">You</span><span class="lg twin">Autopilot</span></div>
+  </div>`;
+}
+
+function apHoldingsHTML(c) {
+  const yourTk = new Set((c.real.holdings || []).map((h) => h.ticker));
+  const apTk = new Set((c.twin.positions || []).map((p) => p.ticker));
+  const yourRows = (c.real.holdings || []).map((h) => `<div class="ap-hrow">
+    <span class="ap-h-tk">${esc(h.ticker)}</span>
+    <span class="ap-h-w">${(h.weight || 0).toFixed(0)}%</span>
+    <span class="ap-h-v">${money0(h.market_value)}</span></div>`).join("") || `<p class="muted">No holdings.</p>`;
+  const apRows = (c.twin.positions || []).map((p) => `<div class="ap-hrow">
+    <span class="ap-h-tk">${esc(p.ticker)}${!yourTk.has(p.ticker) ? ` <span class="ap-tag">added</span>` : ""}</span>
+    <span class="ap-h-w ${(p.return_pct || 0) >= 0 ? "pos" : "neg"}">${pct(p.return_pct)}</span>
+    <span class="ap-h-v">${money0(p.market_value)}</span></div>`).join("");
+  const cashRow = `<div class="ap-hrow cash"><span class="ap-h-tk">Cash</span><span class="ap-h-w"></span><span class="ap-h-v">${money0(c.twin.cash)}</span></div>`;
+  const added = [...apTk].filter((t) => !yourTk.has(t));
+  const sold = [...yourTk].filter((t) => !apTk.has(t));
+  let diff = "";
+  if (added.length || sold.length) {
+    const parts = [];
+    if (added.length) parts.push(`bought ${added.join(", ")}`);
+    if (sold.length) parts.push(`exited ${sold.join(", ")}`);
+    diff = `<p class="ap-diff">Diverged from you: ${esc(parts.join(" · "))}.</p>`;
+  }
+  return `<div class="ap-holdings-wrap">${diff}<div class="ap-holdings">
+    <div class="ap-col"><span class="ap-col-h">Your book</span>${yourRows}</div>
+    <div class="ap-col"><span class="ap-col-h">Autopilot's book</span>${apRows}${cashRow}</div>
+  </div></div>`;
+}
+
+function apHistoryHTML(c) {
+  const trades = c.trades || [];
+  if (!trades.length) {
+    return `<div class="ap-history"><h3>History</h3>
+      <p class="ap-hist-empty">No moves yet — Autopilot is holding the cloned book. Every buy and sell it makes, with the exact time and its reasoning, lands here once its decision engine is switched on.</p></div>`;
+  }
+  let html = `<div class="ap-history"><h3>History</h3><p class="ap-hist-sub">Every move Autopilot has made, newest first.</p>`;
+  let lastDay = null;
+  for (const t of trades) {
+    const stamp = t.filled_at || t.decided_at;
+    const day = actDay(stamp);
+    if (day !== lastDay) { html += `<div class="ap-day">${esc(day)}</div>`; lastDay = day; }
+    const act = (t.action || "").toLowerCase();
+    const sh = (+t.shares || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const detail = t.status === "filled"
+      ? `${sh} sh @ ${money(t.price)} · ${money0(t.value)}`
+      : t.status === "canceled"
+        ? `~${money0(t.value || 0)} canceled`
+        : `~${money0(t.value || 0)} queued`;
+    const grade = t.judgement ? ` <span class="ap-grade">judge ${esc(t.judgement.verdict)} ${t.judgement.score}</span>` : "";
+    const tags = [t.tactic, t.horizon].filter(Boolean).map((x) => `<span class="ap-meta">${esc(x)}</span>`).join("");
+    const critic = t.critic_note ? `<p class="ap-critic">${esc(t.critic_note)}</p>` : "";
+    const review = t.review_note ? `<p class="ap-review">${esc(t.review_note)}</p>` : "";
+    html += `<div class="ap-trade">
+      <span class="ap-t-time" title="${esc(stamp)}">${esc(actTime(stamp))}</span>
+      <span class="ap-act ${act}">${esc((t.action || "").toUpperCase())}</span>
+      <span class="ap-t-tk">${esc(t.ticker)}</span>
+      <span class="ap-t-detail">${esc(detail)}</span>
+      <span class="ap-t-status ${esc(t.status)}">${esc(t.status)}</span>
+      ${tags ? `<div class="ap-t-tags">${tags}</div>` : ""}
+      ${critic}
+      ${t.reasoning ? `<p class="ap-t-why">${esc(t.reasoning)}${grade}</p>` : (grade ? `<p class="ap-t-why">${grade}</p>` : "")}
+      ${review}
+    </div>`;
+  }
+  return html + `</div>`;
+}
+
+const _apRefresh = $("#apRefresh");
+if (_apRefresh) _apRefresh.addEventListener("click", () => loadAutopilot(true));
 
 function chartBlock(chart, opts = {}) {
   const w = opts.width || 760, h = opts.height || 220;
@@ -1980,6 +2191,10 @@ loadState().then(() => {
   loadPings();
   setTimeout(() => refreshLive({ quiet: true }), 250);
   setTimeout(loadFeed, 800);
+  // deep-link a tab via #hash (e.g. /#autopilot) once state is ready
+  const h = (location.hash || "").replace("#", "");
+  const tb = h && document.querySelector(`.tab[data-tab="${h}"]`);
+  if (tb) tb.click();
 });
 setInterval(() => {
   loadState();

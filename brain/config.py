@@ -37,6 +37,12 @@ MANDATE_REVIEW_DAYS = int(os.environ.get("MANDATE_REVIEW_DAYS", "7"))
 # Its own cooldown so a busy week can't spam you.
 MANDATE_DRIFT_PCT = int(os.environ.get("MANDATE_DRIFT_PCT", "12"))
 MANDATE_DRIFT_COOLDOWN_HOURS = float(os.environ.get("MANDATE_DRIFT_COOLDOWN_HOURS", "24"))
+
+# --- Autopilot (the Twin) decision brain ---
+# The autonomous paper fund runs a decision cycle on this cadence (cost control on the LLM think —
+# the Twin still sets its own trade count, we just don't re-think more often than this).
+TWIN_ENABLED = os.environ.get("TWIN_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+TWIN_DECIDE_HOURS = float(os.environ.get("TWIN_DECIDE_HOURS", "4"))
 AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true", "yes", "on"}
 # Autonomous deep research: let the brain run unprompted deep dives on high-signal triggers
 # (a thesis breaking/under review, a mission name promoted to BUY) and drop the report into the

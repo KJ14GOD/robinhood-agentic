@@ -689,6 +689,53 @@ def twin_execute_pending() -> list[dict]:
     return twin.execute_pending()
 
 
+def twin_snapshot() -> dict | None:
+    """Record an equity-curve point for the Twin so the race line lives between trades."""
+    return twin.snapshot_equity() if twin.is_running() else None
+
+
+def twin_review_due() -> list[dict]:
+    """Review matured Autopilot fills and write deterministic policy lessons."""
+    return twin.review_due_trades() if twin.is_running() else []
+
+
+def run_twin_decision() -> bool:
+    """Gated entry for the autonomous decision cycle (cost control on the LLM think — the Twin sets
+    its own trade count, we just don't re-think more than every TWIN_DECIDE_HOURS). Emits an
+    Autopilot event when it actually traded so the move shows in the feed."""
+    if not config.TWIN_ENABLED or not twin.is_running():
+        return False
+    recent = db_repo.recent_agent_runs(limit=1, kind="twin_decision")
+    if recent and recent[0].get("created_at"):
+        try:
+            last = datetime.fromisoformat(recent[0]["created_at"])
+            if (datetime.now(last.tzinfo) - last).total_seconds() < config.TWIN_DECIDE_HOURS * 3600:
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+    decision = twin.decide(get_profile())
+    if not decision:
+        return False
+    moves = [m for m in decision.moves if m.action != "hold" and (m.usd or 0) > 0]
+    if moves:
+        movetxt = "; ".join(f"{m.action} {m.ticker}" for m in moves)[:200]
+        db_repo.save_research_event(
+            event_type="twin_decision", ticker="", severity="info", source="autopilot",
+            title="Autopilot rebalanced",
+            summary=(decision.summary + (f" — {movetxt}" if movetxt else ""))[:300])
+    return True
+
+
+def twin_decide_now() -> dict:
+    """Force a decision cycle right now (the Autopilot tab's 'run a cycle' button), fill anything
+    fillable, and return the refreshed race."""
+    if not twin.is_running():
+        return {"started": False}
+    twin.decide(get_profile())
+    twin.execute_pending()   # fills now if the market's open; otherwise the moves stay queued
+    return twin.compare(refresh=True)
+
+
 def twin_reset() -> None:
     db_repo.reset_twin()
 
