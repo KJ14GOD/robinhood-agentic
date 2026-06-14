@@ -807,6 +807,30 @@ function openRejudge(s) {
 }
 window.openRejudge = openRejudge;
 
+// ---------- judge deep-link (a ping/activity row -> the judge's read of its trace) ----------
+let JUDGE_BY_RUN = {};
+function indexJudgements(events) {
+  for (const e of events || []) {
+    if (e.judgement && e.judgement.run_id) JUDGE_BY_RUN[e.judgement.run_id] = e.judgement;
+  }
+}
+function judgeChip(e) {
+  const j = e.judgement;
+  if (!j || !j.run_id) return "";
+  return ` <button class="judge-link ${esc(j.verdict)}" onclick="showJudge('${esc(j.run_id)}');event.stopPropagation()" title="how Signal graded this reasoning">judge ${esc(j.verdict)} ${j.score}${j.revised ? " · revised" : ""} →</button>`;
+}
+function showJudge(runId) {
+  const j = JUDGE_BY_RUN[runId];
+  if (!j) return;
+  showModal(`<div class="card" style="border:none;box-shadow:none;padding:0">
+    <h3 style="margin:0 0 4px">How Signal graded this</h3>
+    <p class="muted" style="margin:0 0 12px">The auto-judge's read of the reasoning behind this ${esc((EVAL_KINDLABEL[j.kind] || j.kind || "call")).toLowerCase()}. Process quality — grounded, falsifiable, sourced — not market outcome.</p>
+    ${judgeBlock(j)}
+  </div>`);
+  $("#modalCard").classList.add("modal-wide");
+}
+window.showJudge = showJudge;
+
 // (briefings render as agent messages in the Home stream — see briefMsgHTML / chipBrief)
 
 // ---------- Activity (dense terminal log) ----------
@@ -853,6 +877,7 @@ async function loadActivity() {
   let r;
   try { r = await api("events?limit=120"); } catch (e) { return; }
   ACT_EVENTS = (r && r.events) || [];
+  indexJudgements(ACT_EVENTS);   // so rows can deep-link to the judge's read of their trace
   await loadRejudgeRuns();  // so thesis rows can link straight to their evidence
   renderActivity();
   markPingsRead(ACT_EVENTS);  // looking at the full log clears the "new" pings
@@ -886,7 +911,7 @@ function renderActivity() {
     html += `<div class="act-row ${kind} ${esc(e.severity || "info")}">
       <span class="act-time">${esc(actTime(e.created_at))}</span>
       <span class="act-tk"${e.ticker ? ` onclick="analyze('${esc(e.ticker)}')"` : ""}>${esc(e.ticker || "")}</span>
-      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${actDetail(e)}${evBtn}</span></span>
+      <span class="act-main"><span class="act-what">${esc(actWhat(e))}</span><span class="act-detail">${actDetail(e)}${evBtn}${judgeChip(e)}</span></span>
     </div>`;
   }
   box.innerHTML = html;
@@ -1204,29 +1229,61 @@ async function loadEvals() {
   try { d = await api("evals" + (EVAL_KIND ? `?kind=${EVAL_KIND}` : "")); }
   catch (e) { if (box) box.innerHTML = `<p class="muted">Could not load evals.</p>`; return; }
   EVAL_TAXONOMY = d.taxonomy || [];
-  renderEvalSuite(d.summary || {});
+  renderEvalSuite(d);
   renderEvalList(d.traces || []);
 }
 
-function renderEvalSuite(s) {
+function renderEvalSuite(d) {
   const box = $("#evalSuite");
   if (!box) return;
-  const total = s.labeled || 0, v = s.verdicts || {}, fails = s.failure_counts || [];
-  if (!total) {
-    box.innerHTML = `<div class="eval-empty">Nothing labeled yet — review a trace below. Your failure taxonomy builds itself from what you tag; that's the eval suite.</div>`;
-    return;
+  box.innerHTML = `<div class="eval-suites">${judgeSuiteHTML(d.judge || {})}${humanSuiteHTML(d.summary || {})}</div>`;
+}
+
+function prettyTag(t) {
+  const m = (EVAL_TAXONOMY || []).find((x) => x.id === t);
+  return m ? m.label : String(t || "").replace(/_/g, " ");
+}
+
+function verdictChips(v) {
+  const chip = (k) => `<span class="eval-stat ${k}">${v[k] || 0}<em>${k}</em></span>`;
+  return `<div class="eval-verdicts">${chip("good")}${chip("mixed")}${chip("flawed")}</div>`;
+}
+
+function failBars(fails) {
+  if (!fails || !fails.length) return '<p class="muted">None flagged yet.</p>';
+  const max = fails[0].count || 1;
+  return fails.map((f) => `<div class="eval-fail"><span class="ef-label">${esc(f.label || f.tag)}</span><span class="ef-bar"><i style="width:${Math.round(f.count / max * 100)}%"></i></span><span class="ef-n">${f.count}</span></div>`).join("");
+}
+
+function judgeSuiteHTML(j) {
+  if (!j.judged) {
+    return `<div class="esuite">
+      <div class="esuite-head"><span class="esuite-title">Auto-judge</span><span class="esuite-sub">scored on creation</span></div>
+      <div class="eval-empty">No traces scored yet. Run an Analyze or Deep research — the judge scores it against your taxonomy the instant it's made, no market wait.</div></div>`;
   }
-  const chip = (k, cl) => `<span class="eval-stat ${cl}">${v[k] || 0}<em>${k}</em></span>`;
-  const max = fails.length ? fails[0].count : 1;
-  box.innerHTML = `
-    <div class="eval-suite-head">
-      <span class="eval-suite-n">${total} trace${total === 1 ? "" : "s"} labeled</span>
-      <div class="eval-verdicts">${chip("good", "good")}${chip("mixed", "mixed")}${chip("flawed", "flawed")}</div>
-    </div>
-    <span class="tb-lbl">Failure modes (your eval suite)</span>
-    <div class="eval-fails">${fails.length
-      ? fails.map((f) => `<div class="eval-fail"><span class="ef-label">${esc(f.label || f.tag)}</span><span class="ef-bar"><i style="width:${Math.round(f.count / max * 100)}%"></i></span><span class="ef-n">${f.count}</span></div>`).join("")
-      : '<p class="muted">No failure modes tagged yet.</p>'}</div>`;
+  const rev = j.revised ? ` · ${j.revised} self-revised` : "";
+  const agree = j.agreement == null ? "" : ` · agrees with you ${j.agreement}%<span class="esuite-dim"> (n=${j.agreement_n})</span>`;
+  return `<div class="esuite">
+    <div class="esuite-head"><span class="esuite-title">Auto-judge</span><span class="esuite-sub">continuous · scored on creation</span></div>
+    <div class="esuite-score"><b>${j.avg_score}</b><em>/100 avg quality</em></div>
+    ${verdictChips(j.verdicts || {})}
+    <div class="esuite-meta">${j.judged} judged${rev}${agree}</div>
+    <span class="tb-lbl">Failure modes the judge flags</span>
+    <div class="eval-fails">${failBars(j.failure_counts)}</div>
+  </div>`;
+}
+
+function humanSuiteHTML(s) {
+  const total = s.labeled || 0;
+  const body = total
+    ? `${verdictChips(s.verdicts || {})}
+       <span class="tb-lbl">Your failure taxonomy</span>
+       <div class="eval-fails">${failBars(s.failure_counts)}</div>`
+    : `<div class="eval-empty">Nothing labeled yet — open a trace below and tag what failed. Your taxonomy builds itself from what you tag; it's the ground truth the judge is measured against.</div>`;
+  return `<div class="esuite">
+    <div class="esuite-head"><span class="esuite-title">Your labels</span><span class="esuite-sub">ground truth · ${total} tagged</span></div>
+    ${body}
+  </div>`;
 }
 
 function evalTicker(r) {
@@ -1242,17 +1299,18 @@ function renderEvalList(traces) {
   EVAL_TRACES = traces;
   if (!traces.length) { box.innerHTML = `<p class="muted">No traces for this filter yet. Run an Analyze or Deep research, then come back.</p>`; return; }
   box.innerHTML = traces.map((r, i) => {
-    const lab = r.label;
-    const tag = lab ? `<span class="eval-verdict-tag ${lab.verdict}">${esc(lab.verdict)}</span>` : `<span class="eval-unlabeled">unlabeled</span>`;
+    const lab = r.label, j = r.judgement;
+    const jchip = j ? `<span class="eval-verdict-tag j ${j.verdict}" title="auto-judge: ${esc(j.verdict)} ${j.score}/100${j.revised ? " · self-revised" : ""}">${j.score}</span>` : "";
+    const tag = lab ? `<span class="eval-verdict-tag ${lab.verdict}" title="your label">${esc(lab.verdict)}</span>` : `<span class="eval-unlabeled">unlabeled</span>`;
     return `<div class="eval-item">
       <div class="eval-row" onclick="toggleEval(${i})">
         <span class="eval-caret" id="evalCaret${i}">▸</span>
         <span class="eval-tk">${esc(evalTicker(r))}</span>
         <span class="eval-kind">${esc(EVAL_KINDLABEL[r.kind] || r.kind)}</span>
         <span class="eval-when">${(r.created_at || "").slice(0, 10)}</span>
-        ${tag}
+        <span class="eval-tags">${jchip}${tag}</span>
       </div>
-      <div class="eval-detail" id="evalDetail${i}" hidden>${traceBody(r)}${labelForm(r, lab)}</div>
+      <div class="eval-detail" id="evalDetail${i}" hidden>${traceBody(r)}${judgeBlock(r.judgement)}${labelForm(r, lab)}</div>
     </div>`;
   }).join("");
 }
@@ -1282,6 +1340,20 @@ function traceBody(r) {
   if (brief) out += `<div class="tb-brief"><span class="tb-lbl">Evidence it read</span><p>${esc(brief).slice(0, 1400).replace(/\n/g, "<br>")}</p></div>`;
   if (sources.length) out += `<span class="tb-lbl">Sources</span><ul class="dr-list src-list">${sources.slice(0, 8).map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></li>`).join("")}</ul>`;
   return `<div class="tb">${out || '<p class="muted">No detail captured for this trace.</p>'}</div>`;
+}
+
+function judgeBlock(j) {
+  if (!j) return "";
+  const modes = (j.failure_modes || []).map((t) => `<span class="jm">${esc(prettyTag(t))}</span>`).join("");
+  const gnd = (j.grounding || []).map((g) =>
+    `<div class="jg ${g.supported ? "ok" : "no"}"><p>${esc(g.claim)}${g.note ? ` — <em>${esc(g.note)}</em>` : ""}</p></div>`).join("");
+  return `<div class="jbox">
+    <div class="jhead"><span class="jh-title">Auto-judge</span><span class="jverdict ${j.verdict}">${esc(j.verdict)} · ${j.score}/100</span>${j.revised ? `<span class="jrev">self-revised before shipping</span>` : ""}</div>
+    ${j.rationale ? `<p class="jrat">${esc(j.rationale)}</p>` : ""}
+    ${modes ? `<div class="jmodes">${modes}</div>` : ""}
+    ${gnd ? `<div class="jgnd"><span class="tb-lbl">Grounding check</span>${gnd}</div>` : ""}
+    ${j.fix ? `<p class="jfix"><b>Suggested fix</b> · ${esc(j.fix)}</p>` : ""}
+  </div>`;
 }
 
 function labelForm(r, lab) {
@@ -1485,7 +1557,7 @@ function renderHome() {
   }
   if (STATE) {
     if (lastDay !== "Today") html += `<div class="stream-day">Today</div>`;
-    html += openerHTML();
+    html += showOnboarding() ? onboardingHTML() : openerHTML();
   }
   box.innerHTML = html || `<div class="loading"><span class="spin"></span> Waking Signal up…</div>`;
   if (STREAM_STICK) box.scrollTop = box.scrollHeight;
@@ -1536,6 +1608,77 @@ function openerHTML() {
   </div>`;
 }
 
+// ---------- first-run onboarding (the guided front door) ----------
+// Shown in place of the opener until a new user has connected money, stated a goal, and seen a
+// first plan. Keyed off real state, so anyone already set up never sees it; dismissable.
+let ONBOARD_DISMISSED = localStorage.getItem("onboardDismissed") === "1";
+
+function onboardState() {
+  const hs = (STATE && STATE.portfolio && STATE.portfolio.holdings) || [];
+  return { money: hs.length > 0, goal: !!(MANDATE && MANDATE.statement), plan: !!MANDATE_REVIEW };
+}
+function onboardComplete() { const s = onboardState(); return s.money && s.goal; }   // a goal + a book = onboarded; the first plan then renders below
+function onboardFirstTodo() { const s = onboardState(); return !s.money ? "money" : !s.goal ? "goal" : null; }
+function showOnboarding() { return !!STATE && !ONBOARD_DISMISSED && !onboardComplete(); }
+
+function onboardingHTML() {
+  const s = onboardState(), active = onboardFirstTodo();
+  const actions = {
+    money: `<button class="ob-btn" onclick="goTab('portfolio')">Add or connect holdings</button>`,
+    goal: `<textarea class="ob-input" id="obGoal" placeholder="e.g. long-term growth I can hold a year+, moderate risk, nothing too speculative"></textarea>
+           <button class="ob-btn" onclick="saveOnboardGoal(this)">Save my goal</button>`,
+  };
+  const step = (key, n, title, todo, done) => {
+    const isDone = s[key], isActive = active === key;
+    return `<div class="ob-step ${isDone ? "done" : isActive ? "active" : "todo"}">
+      <span class="ob-dot">${isDone ? "" : n}</span>
+      <div class="ob-body">
+        <div class="ob-title">${esc(title)}</div>
+        <p class="ob-desc">${esc(isDone ? done : todo)}</p>
+        ${isActive ? actions[key] : ""}
+      </div>
+    </div>`;
+  };
+  return `<div class="msg agent onboard">
+    <span class="agent-kicker">Welcome to Signal</span>
+    <p class="ob-intro">I'm your research agent. Give me your money and your goal, and I'll watch your book, dig into your names, and bring you a plan — you stay in control of every trade. Three quick steps:</p>
+    <div class="ob-steps">
+      ${step("money", 1, "Connect your money", "Sync or enter your holdings so I know what you actually own.", "Holdings are in — I can see your book.")}
+      ${step("goal", 2, "State your goal", "Tell me what you're trying to do, in plain words. It becomes the standing instruction behind every call.", "Goal set — everything I find now aligns to it.")}
+      ${step("plan", 3, "Get your first plan", "The moment your goal is set, I read your book against it and drop the first moves right here in the chat.", "Done — your plan is in the conversation above.")}
+    </div>
+    <button class="linklike ob-skip" onclick="dismissOnboarding()">skip for now</button>
+  </div>`;
+}
+
+function goTab(name) { const t = document.querySelector(`.tab[data-tab="${name}"]`); if (t) t.click(); }
+window.goTab = goTab;
+
+async function saveOnboardGoal(btn) {
+  const ta = $("#obGoal");
+  const text = ((ta && ta.value) || "").trim();
+  if (!text) { toast("Tell me your goal first"); if (ta) ta.focus(); return; }
+  busy(btn, true);
+  try {
+    await api("mandate", { statement: text });
+    await loadMandate();   // saves the goal + warms the plan; re-renders (onboarding completes)
+    toast("Goal set");
+    if (MANDATE_REVIEW) {   // hand them the first plan as the payoff, right in the stream
+      STREAM_STICK = true;
+      pushEphemeral(planMsgHTML(MANDATE_REVIEW));
+      renderHome();
+    }
+  } catch (e) { toast("Could not save your goal"); busy(btn, false); }
+}
+window.saveOnboardGoal = saveOnboardGoal;
+
+function dismissOnboarding() {
+  ONBOARD_DISMISSED = true;
+  localStorage.setItem("onboardDismissed", "1");
+  renderHome();
+}
+window.dismissOnboarding = dismissOnboarding;
+
 function eventMsgHTML(e, fresh) {
   const kind = actKind(e);
   const click = e.event_type === "mandate_plan" ? ` onclick="chipPlan()"`
@@ -1547,6 +1690,7 @@ function eventMsgHTML(e, fresh) {
       <span class="ev-time">${esc(actTime(e.created_at))}</span>
     </div>
     ${e.summary ? `<p class="ev-sum">${actDetail(e)}</p>` : ""}
+    ${e.judgement ? `<div class="ev-judge">${judgeChip(e)}</div>` : ""}
   </div>`;
 }
 
@@ -1767,6 +1911,7 @@ async function loadPings() {
   try { r = await api("events?limit=120"); } catch (e) { return; }
   const prev = PING_EVENTS;
   PING_EVENTS = (r && r.events) || [];
+  indexJudgements(PING_EVENTS);   // so Home event messages can deep-link to the judge's read
   if (localStorage.getItem("pingSeenId") === null && PING_EVENTS.length) {
     // First ever load: start "caught up" on the existing backlog so it doesn't all show as new.
     // Only events logged from here on will register as pings.

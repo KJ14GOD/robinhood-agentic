@@ -60,3 +60,22 @@ def normalize_tag(tag: str) -> str:
 def pretty(tag: str) -> str:
     """Human label for a tag id — the seed's label, or a title-cased fallback."""
     return _LABELS.get(tag) or tag.replace("_", " ").capitalize()
+
+
+# Failure modes severe enough to gate a recommendation: if the judge flags any of these on a
+# fresh call, the brain repairs it before it ships. The softer modes (vague/generic/stale/
+# missed_catalyst/tool_misuse) lower the score and surface in review, but don't block the output.
+LOAD_BEARING = {
+    "hallucinated_fact", "weak_grounding", "source_mismatch",
+    "not_falsifiable", "overconfident", "ignored_profile", "contradiction",
+}
+
+
+def is_load_bearing(tags: list[str]) -> bool:
+    """Did the judge flag any failure mode serious enough to warrant a self-revision?"""
+    return any(normalize_tag(t) in LOAD_BEARING for t in (tags or []))
+
+
+def taxonomy_prompt() -> str:
+    """The taxonomy rendered for the judge — the exact failure modes to score against, by id."""
+    return "\n".join(f"- {m['id']}: {m['label']} — {m['desc']}" for m in SEED_FAILURE_MODES)

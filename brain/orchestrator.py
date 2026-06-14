@@ -15,7 +15,7 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, memory, missions, monitor
+from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, judge, memory, missions, monitor, twin
 from .engines import deep_research as _deep_research
 from .engines import structural_risk as _structural_risk
 from . import config
@@ -404,6 +404,34 @@ def revisit_memory() -> list[dict]:
     return memory.revisit_theses(get_portfolio(), get_profile())
 
 
+# Events whose ping/activity row corresponds to a reasoning trace the judge has scored — so the
+# feed can deep-link straight to the judge's read of it. (deep_dive -> the autonomous deep dive;
+# thesis_* -> the living-memory re-judgement that produced the event.)
+_EVENT_TRACE_KIND = {
+    "deep_dive": "deep_research",
+    "thesis_broken": "rejudge", "thesis_review": "rejudge",
+    "thesis_active": "rejudge", "thesis_affirmed": "rejudge",
+}
+
+
+def _attach_judgements(events: list[dict]) -> None:
+    """Hang the judge's read onto each event whose trace it scored (matched by ticker + kind).
+    One batched query; best-effort, so a miss just leaves the event un-linked."""
+    linked = {e["ticker"].upper() for e in events
+              if e.get("ticker") and e.get("event_type") in _EVENT_TRACE_KIND}
+    if not linked:
+        return
+    jmap = db_repo.judgements_for_tickers(list(linked))
+    if not jmap:
+        return
+    for e in events:
+        kind = _EVENT_TRACE_KIND.get(e.get("event_type"))
+        if kind and e.get("ticker"):
+            j = jmap.get((e["ticker"].upper(), kind))
+            if j:
+                e["judgement"] = j
+
+
 def today_events(limit: int = 40, within_hours: float = 72.0) -> dict:
     """The persisted event stream for the Today surface, newest first, ranked so
     the loudest (alert) items lead. Reads the DB — does not trigger a scan."""
@@ -411,6 +439,7 @@ def today_events(limit: int = 40, within_hours: float = 72.0) -> dict:
     events = db_repo.recent_events(limit=limit, within_hours=within_hours)
     events.sort(key=lambda e: e.get("created_at", ""), reverse=True)   # newest first
     events.sort(key=lambda e: rank.get(e.get("severity"), 3))          # stable: alert → warn → info
+    _attach_judgements(events)
     return {"events": events, "count": len(events)}
 
 
@@ -452,9 +481,12 @@ def eval_traces(limit: int = 30, kind: str | None = None) -> list[dict]:
     runs = db_repo.recent_agent_runs(limit=limit, kind=kind)
     if not kind:  # default to the reasoning products, not chat
         runs = [r for r in runs if r.get("kind") in ("analyst", "rejudge", "deep_research")]
-    labels = db_repo.eval_labels_by_run([r["id"] for r in runs])
+    ids = [r["id"] for r in runs]
+    labels = db_repo.eval_labels_by_run(ids)            # human ground truth
+    judgements = db_repo.eval_judgements_by_run(ids)    # the auto-judge's read
     for r in runs:
         r["label"] = labels.get(r["id"])
+        r["judgement"] = judgements.get(r["id"])
     return runs
 
 
@@ -473,6 +505,45 @@ def eval_summary() -> dict:
     for row in s.get("failure_counts", []):
         row["label"] = evals.pretty(row["tag"])
     return s
+
+
+def judge_summary() -> dict:
+    """The auto eval suite — the LLM-as-judge's continuous quality score (verdict split, avg
+    score, ranked failure modes, # self-revised, agreement with your labels). Mirrors
+    eval_summary but for the machine judgements."""
+    from . import evals
+    s = db_repo.judge_summary()
+    for row in s.get("failure_counts", []):
+        row["label"] = evals.pretty(row["tag"])
+    return s
+
+
+def judge_recent_traces(limit: int | None = None) -> int:
+    """Background sweep: auto-score recent reasoning traces the inline gate didn't (mainly the
+    autonomous re-judge path, and anything produced while judging was off). Bounded per cycle,
+    best-effort. Returns how many it judged this pass."""
+    if not config.JUDGE_ENABLED:
+        return 0
+    pending = db_repo.unjudged_run_ids(limit=limit or config.JUDGE_SWEEP_MAX)
+    if not pending:
+        return 0
+    profile = get_profile()
+    mandate_block = _mandate.mandate_prompt()
+    n = 0
+    for r in pending:
+        block, ticker = judge.block_from_trace(r)
+        if not block:
+            continue
+        a = judge.assess_text(
+            r["kind"], ticker, block, profile,
+            signals_prompt="(historical trace — judge from the captured reasoning and cited evidence)",
+            evidence_text=r.get("answer", ""), sources=judge.sources_from_trace(r),
+            mandate_block=mandate_block)
+        if a is not None:
+            step = (r.get("steps") or [{}])[0]
+            judge.record(r["id"], r["kind"], ticker, a, revised=bool(step.get("revised")))
+            n += 1
+    return n
 
 
 # --- mandate (the standing goal — the agentic cockpit) ---------------------- #
@@ -505,6 +576,55 @@ def mandate_review(force: bool = False) -> dict | None:
     return out
 
 
+def _plan_signature(pf: Portfolio) -> list:
+    """The holdings/weights shape drift is measured against — same basis as the risk signature,
+    as a JSON-friendly list of [ticker, weight_pct]."""
+    return [[tk, w] for tk, w in _risk_signature(pf)]
+
+
+def _mandate_drift(old: list | None, new: list, threshold: int) -> tuple[bool, str]:
+    """Did the book move materially off its last-planned shape? Material = a new or exited position
+    of real size, or any name's weight moving >= threshold points. Returns (is_material, reason)."""
+    od = {t: w for t, w in (old or [])}
+    nd = {t: w for t, w in (new or [])}
+    floor = max(5, threshold // 2)   # what counts as a "real size" new/exited position
+    changes: list[str] = []
+    for tk, w in nd.items():
+        ow = od.get(tk)
+        if ow is None:
+            if w >= floor:
+                changes.append(f"new {tk} {w:.0f}%")
+        elif abs(w - ow) >= threshold:
+            changes.append(f"{tk} {ow:.0f}->{w:.0f}%")
+    for tk, w in od.items():
+        if tk not in nd and w >= floor:
+            changes.append(f"exited {tk} ({w:.0f}%)")
+    return (bool(changes), "; ".join(changes[:4]))
+
+
+def _fire_mandate_plan(review: dict, drift_reason: str = "", sig: list | None = None) -> None:
+    """Build + drop the mandate-plan ping, and (re)set the drift baseline so the next drift is
+    measured from here. Shared by the weekly review and the drift trigger."""
+    moves = review.get("moves") or []
+    align = (review.get("alignment") or "").strip()
+    lead = f"Allocation shift: {drift_reason}. " if drift_reason else ""
+    if drift_reason:
+        title = "Your book moved — plan update"
+    elif moves:
+        title = f"Your plan — {len(moves)} move{'s' if len(moves) != 1 else ''} to consider"
+    else:
+        title = "Your plan — on track"
+    if moves:
+        movetxt = "; ".join(f"{mv['ticker']} {mv['action']}" for mv in moves[:3])
+        summary = f"{lead}{align} → {movetxt}."
+    else:
+        summary = f"{lead}{align or 'Your portfolio still fits your mandate; nothing to change.'}"
+    db_repo.save_research_event(event_type="mandate_plan", ticker="", severity="warn",
+                                title=title, summary=summary[:300], source="mandate")
+    if sig is not None:
+        db_repo.save_mandate_plan_sig(sig)
+
+
 def run_mandate_review() -> bool:
     """Proactive plan: on the mandate cadence, re-read the portfolio against the mandate and
     drop a plan into the ping rail — the agent coming to you, unprompted. Gated by a cooldown
@@ -517,18 +637,60 @@ def run_mandate_review() -> bool:
     review = mandate_review(force=True)   # fresh read, also warms the card cache
     if not review:
         return False
-    moves = review.get("moves") or []
-    align = (review.get("alignment") or "").strip()
-    if moves:
-        movetxt = "; ".join(f"{mv['ticker']} {mv['action']}" for mv in moves[:3])
-        title = f"Your plan — {len(moves)} move{'s' if len(moves) != 1 else ''} to consider"
-        summary = f"{align} → {movetxt}."
-    else:
-        title = "Your plan — on track"
-        summary = align or "Your portfolio still fits your mandate; nothing to change."
-    db_repo.save_research_event(event_type="mandate_plan", ticker="", severity="warn",
-                                title=title, summary=summary[:300], source="mandate")
+    _fire_mandate_plan(review, sig=_plan_signature(get_portfolio()))
     return True
+
+
+def run_mandate_drift() -> bool:
+    """Off-cadence plan: fire when the book moves materially off its last-planned shape between the
+    weekly checks. Durable baseline (survives restarts); its own cooldown so a busy week can't spam.
+    A no-op when there's no mandate, no holdings, or no real drift."""
+    m = _mandate.get_mandate()
+    if not m.is_set():
+        return False
+    pf = get_portfolio()
+    if not pf.holdings:
+        return False
+    cur = _plan_signature(pf)
+    prev = db_repo.load_mandate_plan_sig()
+    if prev is None:
+        db_repo.save_mandate_plan_sig(cur)   # first run baselines only — never fires
+        return False
+    material, reason = _mandate_drift(prev, cur, config.MANDATE_DRIFT_PCT)
+    if not material:
+        return False
+    if db_repo.event_exists_recent("mandate_plan", "", within_hours=config.MANDATE_DRIFT_COOLDOWN_HOURS):
+        db_repo.save_mandate_plan_sig(cur)   # absorb the drift so we don't re-fire the same shift
+        return False
+    review = mandate_review(force=True)
+    if not review:
+        return False
+    _fire_mandate_plan(review, drift_reason=reason, sig=cur)
+    return True
+
+
+# --- the Twin (autonomous paper fund cloned from your real book) ------------- #
+def twin_state() -> dict | None:
+    return twin.state()
+
+
+def twin_start() -> dict | None:
+    """Clone the real account into the Twin (once) and launch it on your current mandate."""
+    return twin.inception(mandate_statement=_mandate.get_mandate().statement)
+
+
+def twin_compare(refresh: bool = False) -> dict:
+    """You vs the Twin since inception — values, returns, the edge, holdings, equity curve, trades."""
+    return twin.compare(refresh=refresh)
+
+
+def twin_execute_pending() -> list[dict]:
+    """Fill any queued Twin orders (no-op off-hours). Called by the autonomous loop later."""
+    return twin.execute_pending()
+
+
+def twin_reset() -> None:
+    db_repo.reset_twin()
 
 
 # --- strategy missions ------------------------------------------------------ #

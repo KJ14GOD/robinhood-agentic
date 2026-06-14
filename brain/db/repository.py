@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 
 from ..models import (
     Briefing, Holding, Mandate, Mission, MissionCandidate, Portfolio, ResearchState,
@@ -14,8 +14,10 @@ from .models import (
     AgentRunRecord,
     BriefingRecord,
     ChatMessageRecord,
+    EvalJudgementRecord,
     EvalLabelRecord,
     EvidenceItemRecord,
+    MandatePlanStateRecord,
     MandateRecord,
     MissionCandidateRecord,
     MissionRecord,
@@ -25,6 +27,10 @@ from .models import (
     ShadowTradeRecord,
     ThesisRecord,
     TickerResearchRecord,
+    TwinEquityRecord,
+    TwinFundRecord,
+    TwinPositionRecord,
+    TwinTradeRecord,
     WatchlistItemRecord,
 )
 from .session import db_session, init_db
@@ -707,6 +713,34 @@ def save_mandate(m: Mandate) -> None:
         return
 
 
+def load_mandate_plan_sig() -> list | None:
+    """The holdings/weights signature as of the last plan we sent. None if never set (so the
+    drift check baselines on first run instead of firing)."""
+    if not _ensure_ready():
+        return None
+    try:
+        with db_session() as session:
+            row = session.get(MandatePlanStateRecord, "default")
+            return json.loads(row.signature_json or "[]") if row else None
+    except Exception:
+        return None
+
+
+def save_mandate_plan_sig(sig: list) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            row = session.get(MandatePlanStateRecord, "default")
+            if not row:
+                row = MandatePlanStateRecord(id="default")
+                session.add(row)
+            row.signature_json = json.dumps(sig or [])
+            row.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
 # --- eval labels (error analysis on brain traces) --------------------------- #
 def save_eval_label(run_id: str, kind: str, ticker: str, verdict: str,
                     failure_modes: list[str], note: str = "") -> bool:
@@ -768,6 +802,148 @@ def eval_summary() -> dict:
         return {"labeled": len(rows), "verdicts": verdicts, "failure_counts": ranked}
     except Exception:
         return {"labeled": 0, "verdicts": {}, "failure_counts": []}
+
+
+# --- eval judgements (the LLM-as-judge auto-score; eval Phase 2) ------------ #
+def save_eval_judgement(run_id: str, kind: str, ticker: str, verdict: str, score: int,
+                        failure_modes: list[str], grounding: list[dict], rationale: str,
+                        fix: str = "", revised: bool = False, model: str = "") -> bool:
+    """Upsert the machine judge's score on one trace (one per run_id; latest wins)."""
+    if not _ensure_ready() or not run_id:
+        return False
+    try:
+        with db_session() as session:
+            row = session.execute(
+                select(EvalJudgementRecord).where(EvalJudgementRecord.run_id == run_id).limit(1)
+            ).scalars().first()
+            if row is None:
+                row = EvalJudgementRecord(run_id=run_id, created_at=datetime.now(timezone.utc))
+                session.add(row)
+            row.kind = kind or row.kind or ""
+            row.ticker = (ticker or row.ticker or "").upper()
+            row.verdict = verdict or ""
+            row.score = int(score or 0)
+            row.failure_modes_json = json.dumps(failure_modes or [])
+            row.grounding_json = json.dumps(grounding or [])
+            row.rationale = (rationale or "")[:4000]
+            row.fix = (fix or "")[:2000]
+            row.revised = bool(revised)
+            row.model = model or ""
+            row.updated_at = datetime.now(timezone.utc)
+        return True
+    except Exception:
+        return False
+
+
+def eval_judgements_by_run(run_ids: list[str]) -> dict[str, dict]:
+    """Machine judgements for a set of runs, keyed by run_id — so the worklist can show the
+    judge's read next to (and against) the human label."""
+    if not _ensure_ready() or not run_ids:
+        return {}
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(EvalJudgementRecord).where(EvalJudgementRecord.run_id.in_(list(run_ids)))
+            ).scalars().all()
+            return {r.run_id: {"verdict": r.verdict, "score": r.score,
+                               "failure_modes": json.loads(r.failure_modes_json or "[]"),
+                               "grounding": json.loads(r.grounding_json or "[]"),
+                               "rationale": r.rationale, "fix": r.fix, "revised": r.revised}
+                    for r in rows}
+    except Exception:
+        return {}
+
+
+def unjudged_run_ids(limit: int = 20,
+                     kinds: tuple[str, ...] = ("analyst", "rejudge", "deep_research")) -> list[dict]:
+    """Recent reasoning traces with no machine judgement yet — the background sweep's worklist."""
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            judged = set(session.execute(select(EvalJudgementRecord.run_id)).scalars().all())
+            rows = session.execute(
+                select(AgentRunRecord).where(AgentRunRecord.kind.in_(list(kinds)))
+                .order_by(desc(AgentRunRecord.created_at)).limit(limit * 4)
+            ).scalars().all()
+            out: list[dict] = []
+            for r in rows:
+                if r.id in judged:
+                    continue
+                out.append({"id": r.id, "kind": r.kind, "query": r.query,
+                            "answer": r.answer, "steps": json.loads(r.steps_json or "[]")})
+                if len(out) >= limit:
+                    break
+            return out
+    except Exception:
+        return []
+
+
+def judge_summary() -> dict:
+    """The auto eval suite: traces scored, verdict split, avg score, ranked failure modes, how
+    many self-revised, and the judge's agreement with human labels where both exist (the eval of
+    the eval — tells you whether to trust the auto-score)."""
+    empty = {"judged": 0, "verdicts": {}, "avg_score": 0, "failure_counts": [],
+             "revised": 0, "agreement": None, "agreement_n": 0}
+    if not _ensure_ready():
+        return empty
+    try:
+        with db_session() as session:
+            jrows = session.execute(select(EvalJudgementRecord)).scalars().all()
+            human = {r.run_id: r.verdict for r in session.execute(select(EvalLabelRecord)).scalars().all()}
+        verdicts: dict[str, int] = {}
+        fails: dict[str, int] = {}
+        scores: list[int] = []
+        revised = agree = overlap = 0
+        for r in jrows:
+            verdicts[r.verdict] = verdicts.get(r.verdict, 0) + 1
+            scores.append(r.score or 0)
+            if r.revised:
+                revised += 1
+            for tag in json.loads(r.failure_modes_json or "[]"):
+                fails[tag] = fails.get(tag, 0) + 1
+            if r.run_id in human and r.verdict:
+                overlap += 1
+                if human[r.run_id] == r.verdict:
+                    agree += 1
+        ranked = sorted(({"tag": k, "count": v} for k, v in fails.items()),
+                        key=lambda x: x["count"], reverse=True)
+        return {"judged": len(jrows), "verdicts": verdicts,
+                "avg_score": round(sum(scores) / len(scores)) if scores else 0,
+                "failure_counts": ranked, "revised": revised,
+                "agreement": (round(agree / overlap * 100) if overlap else None),
+                "agreement_n": overlap}
+    except Exception:
+        return empty
+
+
+def judgements_for_tickers(tickers: list[str]) -> dict:
+    """Latest machine judgement per (ticker, kind) for a set of tickers — so the ping/activity
+    feed can deep-link an event to the judge's read of the trace behind it. Keyed by (TICKER, kind)."""
+    if not _ensure_ready() or not tickers:
+        return {}
+    ups = [t.upper() for t in tickers if t]
+    if not ups:
+        return {}
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(EvalJudgementRecord).where(EvalJudgementRecord.ticker.in_(ups))
+                .order_by(desc(EvalJudgementRecord.created_at))
+            ).scalars().all()
+        out: dict = {}
+        for r in rows:
+            key = (r.ticker, r.kind)
+            if key in out:
+                continue  # rows are newest-first, so the first per key is the latest
+            out[key] = {"run_id": r.run_id, "kind": r.kind, "verdict": r.verdict, "score": r.score,
+                        "failure_modes": json.loads(r.failure_modes_json or "[]"),
+                        "grounding": json.loads(r.grounding_json or "[]"),
+                        "rationale": r.rationale, "fix": r.fix, "revised": r.revised,
+                        "created_at": r.created_at.isoformat() if r.created_at else ""}
+        return out
+    except Exception:
+        return {}
 
 
 # --- evidence store (unified, reusable sources) ----------------------------- #
@@ -950,5 +1126,220 @@ def delete_mission(mission_id: str) -> None:
             row = session.get(MissionRecord, mission_id)
             if row:
                 session.delete(row)
+    except Exception:
+        return
+
+
+# --- the Twin (autonomous paper fund) --------------------------------------- #
+def load_twin_fund() -> dict | None:
+    if not _ensure_ready():
+        return None
+    try:
+        with db_session() as session:
+            r = session.get(TwinFundRecord, "default")
+            if not r:
+                return None
+            return {"status": r.status, "cash": r.cash, "inception_value": r.inception_value,
+                    "inception_at": r.inception_at.isoformat() if r.inception_at else "",
+                    "mandate_statement": r.mandate_statement}
+    except Exception:
+        return None
+
+
+def save_twin_fund(status: str, inception_value: float, cash: float,
+                   mandate_statement: str = "") -> None:
+    """Create/replace the fund row at inception. Sets inception_at to now."""
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.get(TwinFundRecord, "default")
+            if not r:
+                r = TwinFundRecord(id="default")
+                session.add(r)
+            r.status = status
+            r.inception_at = datetime.now(timezone.utc)
+            r.inception_value = inception_value
+            r.cash = cash
+            r.mandate_statement = mandate_statement
+            r.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
+def update_twin_cash(cash: float) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.get(TwinFundRecord, "default")
+            if r:
+                r.cash = cash
+                r.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
+def twin_positions() -> list[dict]:
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            rows = session.execute(select(TwinPositionRecord).order_by(TwinPositionRecord.ticker)).scalars().all()
+            return [{"ticker": r.ticker, "shares": r.shares, "avg_cost": r.avg_cost,
+                     "thesis": r.thesis, "horizon": r.horizon, "exit_rule": r.exit_rule,
+                     "opened_at": r.opened_at.isoformat() if r.opened_at else ""} for r in rows]
+    except Exception:
+        return []
+
+
+def get_twin_position(ticker: str) -> dict | None:
+    if not _ensure_ready():
+        return None
+    try:
+        with db_session() as session:
+            r = session.execute(select(TwinPositionRecord).where(
+                TwinPositionRecord.ticker == ticker.upper()).limit(1)).scalars().first()
+            if not r:
+                return None
+            return {"ticker": r.ticker, "shares": r.shares, "avg_cost": r.avg_cost,
+                    "thesis": r.thesis, "horizon": r.horizon, "exit_rule": r.exit_rule}
+    except Exception:
+        return None
+
+
+def upsert_twin_position(ticker: str, shares: float, avg_cost: float,
+                         thesis: str | None = None, horizon: str | None = None,
+                         exit_rule: str | None = None) -> None:
+    """Set a position's shares/avg_cost (and intent fields when provided). Intent fields left as
+    None keep their existing value, so a fill can update shares without wiping the thesis."""
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.execute(select(TwinPositionRecord).where(
+                TwinPositionRecord.ticker == ticker.upper()).limit(1)).scalars().first()
+            if not r:
+                r = TwinPositionRecord(ticker=ticker.upper(), opened_at=datetime.now(timezone.utc))
+                session.add(r)
+            r.shares = shares
+            r.avg_cost = avg_cost
+            if thesis is not None:
+                r.thesis = thesis
+            if horizon is not None:
+                r.horizon = horizon
+            if exit_rule is not None:
+                r.exit_rule = exit_rule
+            r.updated_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
+def delete_twin_position(ticker: str) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.execute(select(TwinPositionRecord).where(
+                TwinPositionRecord.ticker == ticker.upper()).limit(1)).scalars().first()
+            if r:
+                session.delete(r)
+    except Exception:
+        return
+
+
+def add_twin_trade(ticker: str, action: str, shares: float, reasoning: str = "",
+                   conviction: int = 0, status: str = "pending") -> int:
+    if not _ensure_ready():
+        return 0
+    try:
+        with db_session() as session:
+            r = TwinTradeRecord(ticker=ticker.upper(), action=action, shares=shares,
+                                reasoning=reasoning[:4000], conviction=conviction, status=status,
+                                decided_at=datetime.now(timezone.utc))
+            session.add(r)
+            session.flush()
+            return r.id
+    except Exception:
+        return 0
+
+
+def pending_twin_trades() -> list[dict]:
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            rows = session.execute(select(TwinTradeRecord).where(
+                TwinTradeRecord.status == "pending").order_by(TwinTradeRecord.decided_at)).scalars().all()
+            return [{"id": r.id, "ticker": r.ticker, "action": r.action, "shares": r.shares,
+                     "reasoning": r.reasoning, "conviction": r.conviction} for r in rows]
+    except Exception:
+        return []
+
+
+def fill_twin_trade(trade_id: int, price: float, value: float) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.get(TwinTradeRecord, trade_id)
+            if r:
+                r.status = "filled"
+                r.price = price
+                r.value = value
+                r.filled_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
+def recent_twin_trades(limit: int = 60) -> list[dict]:
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            rows = session.execute(select(TwinTradeRecord).order_by(
+                desc(TwinTradeRecord.decided_at)).limit(limit)).scalars().all()
+            return [{"id": r.id, "ticker": r.ticker, "action": r.action, "shares": r.shares,
+                     "price": r.price, "value": r.value, "reasoning": r.reasoning,
+                     "conviction": r.conviction, "status": r.status,
+                     "decided_at": r.decided_at.isoformat() if r.decided_at else "",
+                     "filled_at": r.filled_at.isoformat() if r.filled_at else ""} for r in rows]
+    except Exception:
+        return []
+
+
+def add_twin_equity_point(value: float, cash: float, positions_value: float) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            session.add(TwinEquityRecord(value=value, cash=cash, positions_value=positions_value,
+                                         at=datetime.now(timezone.utc)))
+    except Exception:
+        return
+
+
+def twin_equity_curve(limit: int = 400) -> list[dict]:
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            rows = session.execute(select(TwinEquityRecord).order_by(
+                desc(TwinEquityRecord.at)).limit(limit)).scalars().all()
+            rows = list(reversed(rows))   # oldest -> newest for charting
+            return [{"at": r.at.isoformat() if r.at else "", "value": r.value,
+                     "cash": r.cash, "positions_value": r.positions_value} for r in rows]
+    except Exception:
+        return []
+
+
+def reset_twin() -> None:
+    """Wipe the whole Twin (fund + positions + trades + equity) — for a clean re-inception."""
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            for model in (TwinEquityRecord, TwinTradeRecord, TwinPositionRecord, TwinFundRecord):
+                session.execute(delete(model))
     except Exception:
         return

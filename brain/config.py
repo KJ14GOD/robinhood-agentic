@@ -32,6 +32,11 @@ BRAIN_LOOP_SECONDS = int(os.environ.get("BRAIN_LOOP_SECONDS", "180"))
 # How often the agent proactively re-reads your portfolio against your mandate and pings
 # you a fresh plan (the "comes to you" cadence). One LLM call per period.
 MANDATE_REVIEW_DAYS = int(os.environ.get("MANDATE_REVIEW_DAYS", "7"))
+# Drift-triggered plan: also re-plan when the book moves materially off its last-planned shape
+# between the weekly checks (a per-name weight move ≥ this many points, a new/exited position).
+# Its own cooldown so a busy week can't spam you.
+MANDATE_DRIFT_PCT = int(os.environ.get("MANDATE_DRIFT_PCT", "12"))
+MANDATE_DRIFT_COOLDOWN_HOURS = float(os.environ.get("MANDATE_DRIFT_COOLDOWN_HOURS", "24"))
 AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true", "yes", "on"}
 # Autonomous deep research: let the brain run unprompted deep dives on high-signal triggers
 # (a thesis breaking/under review, a mission name promoted to BUY) and drop the report into the
@@ -39,6 +44,16 @@ AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true
 AUTO_DEEP_RESEARCH = os.environ.get("AUTO_DEEP_RESEARCH", "true").lower() in {"1", "true", "yes", "on"}
 MORNING_BRIEF_TIME = os.environ.get("MORNING_BRIEF_TIME", "06:30")
 EVENING_BRIEF_TIME = os.environ.get("EVENING_BRIEF_TIME", "16:30")
+
+# --- Eval layer / self-grading (Phase 2: LLM-as-judge) ---
+# The process eval: auto-score every reasoning trace against the failure taxonomy the instant
+# it's produced (judgeable now, unlike the time-gated outcome Scorecard). JUDGE_ENABLED is the
+# master switch. SELF_CRITIQUE additionally lets a fresh recommendation the judge flags as flawed
+# on a load-bearing mode repair itself ONCE before it reaches the user — the agentic loop.
+JUDGE_ENABLED = os.environ.get("JUDGE_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+SELF_CRITIQUE = os.environ.get("SELF_CRITIQUE", "true").lower() in {"1", "true", "yes", "on"}
+JUDGE_EFFORT = os.environ.get("JUDGE_EFFORT", "medium")  # focused pass; cheaper than the main brain
+JUDGE_SWEEP_MAX = int(os.environ.get("JUDGE_SWEEP_MAX", "4"))  # max unscored traces auto-judged per brain cycle
 
 # --- Robinhood (read-only) ---
 RH_USERNAME = os.environ.get("RH_USERNAME", "")

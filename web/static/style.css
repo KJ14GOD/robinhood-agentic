@@ -606,6 +606,73 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .ef-custom,.ef-note{width:100%;box-sizing:border-box;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;margin-bottom:8px;background:var(--card)}
 .ef-note{min-height:54px;resize:vertical}
 
+/* ---------- auto-judge (eval Phase 2: the brain grading itself) ---------- */
+.eval-suites{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+@media (max-width:760px){.eval-suites{grid-template-columns:1fr}}
+.esuite{border:1px solid var(--line2);border-radius:12px;padding:16px 18px;background:var(--card)}
+.esuite-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+.esuite-title{font-weight:680;font-size:14.5px}
+.esuite-sub{font-size:11px;color:var(--faint);font-family:var(--mono);text-transform:uppercase;letter-spacing:.04em}
+.esuite-score{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.esuite-score b{font-size:34px;font-weight:700;font-family:var(--mono);line-height:1}
+.esuite-score em{font-style:normal;font-size:12px;color:var(--faint)}
+.esuite-meta{font-size:12px;color:var(--muted);margin:8px 0 2px}
+.esuite-dim{color:var(--faint)}
+.esuite .tb-lbl{margin-top:13px}
+
+.eval-tags{display:flex;align-items:center;justify-content:flex-end;gap:7px}
+.eval-verdict-tag.j{font-family:var(--mono);background:transparent;border:1px solid var(--line2)}
+.eval-verdict-tag.j.good{color:var(--green-d);border-color:#bfe3cc}
+.eval-verdict-tag.j.flawed{color:var(--red);border-color:#f0c5c5}
+.eval-verdict-tag.j.mixed{color:var(--amber);border-color:#ecd9ad}
+
+.jbox{border:1px solid var(--line2);border-radius:10px;padding:13px 15px;margin-top:13px;background:#fff}
+.jhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.jh-title{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
+.jverdict{font-size:11px;font-weight:700;font-family:var(--mono);padding:2px 8px;border-radius:5px}
+.jverdict.good{color:var(--green-d);background:#e9f6ee}
+.jverdict.flawed{color:var(--red);background:#fcecec}
+.jverdict.mixed{color:var(--amber);background:#fbf3e3}
+.jrev{font-size:10.5px;color:var(--brain);border:1px solid var(--line2);border-radius:99px;padding:1px 9px;font-weight:600}
+.jrat{font-size:13px;color:var(--txt);line-height:1.55;margin:10px 0 0}
+.jmodes{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.jm{font-size:11px;color:var(--red);background:#fcecec;border-radius:5px;padding:2px 8px}
+.jgnd{margin-top:12px}
+.jg{display:flex;gap:9px;padding:3px 0}
+.jg p{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0}
+.jg::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;margin-top:6px;background:var(--faint)}
+.jg.ok::before{background:var(--green-d)}
+.jg.no::before{background:var(--red)}
+.jfix{font-size:12.5px;color:var(--txt);line-height:1.55;margin:12px 0 0;padding-top:11px;border-top:1px solid var(--line2)}
+.jfix b{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-right:4px}
+
+/* judge deep-link chip (on ping/activity rows) */
+.judge-link{font:inherit;font-size:11px;border:1px solid var(--line2);background:transparent;border-radius:99px;padding:1px 9px;margin-left:8px;cursor:pointer;color:var(--muted);white-space:nowrap}
+.judge-link:hover{border-color:var(--faint)}
+.judge-link.good{color:var(--green-d)}
+.judge-link.flawed{color:var(--red)}
+.judge-link.mixed{color:var(--amber)}
+.ev-judge{margin-top:7px}
+
+/* first-run onboarding (the guided front door) */
+.msg.onboard{max-width:680px}
+.ob-intro{font-size:14px;color:var(--txt);line-height:1.6;margin:6px 0 18px}
+.ob-steps{display:flex;flex-direction:column;gap:20px}
+.ob-step{display:grid;grid-template-columns:26px 1fr;gap:14px;align-items:start}
+.ob-dot{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:var(--mono);color:var(--muted);margin-top:1px;box-sizing:border-box}
+.ob-step.active .ob-dot{border-color:var(--brain);color:var(--brain)}
+.ob-step.done .ob-dot{border-color:var(--green-d);background:var(--green-d)}
+.ob-step.done .ob-dot::after{content:"";width:6px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);margin-top:-2px}
+.ob-step.todo{opacity:.5}
+.ob-title{font-size:14px;font-weight:650;margin-bottom:3px}
+.ob-step.done .ob-title{color:var(--muted)}
+.ob-desc{font-size:13px;color:var(--muted);line-height:1.55;margin:0 0 11px}
+.ob-step.done .ob-desc{margin-bottom:0}
+.ob-input{width:100%;box-sizing:border-box;border:1px solid var(--line2);border-radius:10px;padding:11px 13px;font-size:14px;font-family:inherit;min-height:62px;resize:vertical;background:var(--bg);margin-bottom:10px}
+.ob-btn{font:inherit;font-size:13px;font-weight:560;border:none;border-radius:9px;padding:9px 16px;background:var(--brain);color:#fff;cursor:pointer}
+.ob-btn:hover{opacity:.92}
+.ob-skip{display:inline-block;margin-top:18px;font-size:12px;color:var(--faint)}
+
 /* ---------- mandate card (the cockpit) ---------- */
 .mandate-card{border:1px solid var(--line2);border-radius:14px;padding:16px 18px;margin-bottom:18px;background:var(--card)}
 .mandate-card:empty{display:none}

@@ -222,6 +222,19 @@ class MandateRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class MandatePlanStateRecord(Base):
+    """Durable baseline for drift detection: the holdings/weights signature as of the last mandate
+    plan we sent. Lets the drift-triggered plan fire when the book moves materially off its
+    last-planned shape — and survive restarts (an in-memory baseline would silently re-baseline and
+    miss real drift). Single row (id='default'). Additive table — create_all picks it up, no ALTER."""
+
+    __tablename__ = "mandate_plan_state"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="default")
+    signature_json: Mapped[str] = mapped_column(Text, default="[]")   # [[ticker, weight_pct], ...]
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class EvalLabelRecord(Base):
     """A human error-analysis label on one brain trace (an agent_run). This is the raw
     material of the eval suite: reading real outputs and writing down what failed builds
@@ -237,6 +250,30 @@ class EvalLabelRecord(Base):
     verdict: Mapped[str] = mapped_column(String(20), default="", index=True)  # good | mixed | flawed
     failure_modes_json: Mapped[str] = mapped_column(Text, default="[]")       # taxonomy tags
     note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class EvalJudgementRecord(Base):
+    """The LLM-as-judge's automatic score for one trace (an agent_run) — Phase 2 of the eval
+    layer. Kept in a SEPARATE table from the human `eval_labels` (the ground truth) so the two
+    never collide: create_all picks this up with no migration, and judge-vs-human agreement is
+    computable where both exist. One judgement per run (upsert by run_id) — the latest wins."""
+
+    __tablename__ = "eval_judgements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(40), index=True, unique=True)  # the agent_run judged
+    kind: Mapped[str] = mapped_column(String(40), default="", index=True)     # analyst | rejudge | deep_research...
+    ticker: Mapped[str] = mapped_column(String(20), default="", index=True)
+    verdict: Mapped[str] = mapped_column(String(20), default="", index=True)  # good | mixed | flawed
+    score: Mapped[int] = mapped_column(Integer, default=0)                    # 0-100 quality
+    failure_modes_json: Mapped[str] = mapped_column(Text, default="[]")       # taxonomy tags the judge flagged
+    grounding_json: Mapped[str] = mapped_column(Text, default="[]")           # per-claim grounding checks
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    fix: Mapped[str] = mapped_column(Text, default="")
+    revised: Mapped[bool] = mapped_column(Boolean, default=False)             # did the call self-revise before shipping?
+    model: Mapped[str] = mapped_column(String(80), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
@@ -299,3 +336,72 @@ Index("ix_position_snapshots_ticker_snapshot", PositionSnapshot.ticker, Position
 Index("ix_research_events_ticker_created", ResearchEventRecord.ticker, ResearchEventRecord.created_at)
 Index("ix_shadow_trades_source_closed", ShadowTradeRecord.source, ShadowTradeRecord.closed)
 Index("ix_mission_candidates_mission_ticker", MissionCandidateRecord.mission_id, MissionCandidateRecord.ticker)
+
+
+# --------------------------------------------------------------------------- #
+# The Twin — an autonomous paper fund cloned once from the real account, that
+# then manages itself so the user can race it against their real performance.
+# All additive tables (create_all picks them up; no migration).
+# --------------------------------------------------------------------------- #
+class TwinFundRecord(Base):
+    """The Twin fund itself — single row (id='default'). Cloned from the real book at inception
+    (fixed capital: this cash + the positions are all it ever gets), then runs autonomously."""
+
+    __tablename__ = "twin_fund"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True, default="default")
+    status: Mapped[str] = mapped_column(String(20), default="", index=True)   # "" unset | running | paused
+    inception_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    inception_value: Mapped[float] = mapped_column(Float, default=0.0)         # $ value at the clone
+    cash: Mapped[float] = mapped_column(Float, default=0.0)                    # uninvested cash on hand
+    mandate_statement: Mapped[str] = mapped_column(Text, default="")          # the plan it was launched to pursue
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TwinPositionRecord(Base):
+    """One open Twin holding — shares PLUS the Twin's own intent on it (it authors and revises the
+    thesis/horizon/exit itself; that's what makes the holding a decision, not just a number)."""
+
+    __tablename__ = "twin_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    shares: Mapped[float] = mapped_column(Float, default=0.0)
+    avg_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    thesis: Mapped[str] = mapped_column(Text, default="")        # why the Twin holds it
+    horizon: Mapped[str] = mapped_column(String(60), default="")  # its intended hold (free text: "core", "swing"...)
+    exit_rule: Mapped[str] = mapped_column(Text, default="")     # what would make it sell
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TwinTradeRecord(Base):
+    """One Twin decision. Queued off-hours (status 'pending'), filled at the next open at the live
+    price (status 'filled'). The reasoning is stored so each trade is auditable + judge-scorable."""
+
+    __tablename__ = "twin_trades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    action: Mapped[str] = mapped_column(String(10), default="")   # buy | add | trim | sell
+    shares: Mapped[float] = mapped_column(Float, default=0.0)
+    price: Mapped[float] = mapped_column(Float, default=0.0)       # fill price (0 until filled)
+    value: Mapped[float] = mapped_column(Float, default=0.0)       # shares * fill price
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    conviction: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending | filled | canceled
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TwinEquityRecord(Base):
+    """A point on the Twin's equity curve — the line you race your real account against."""
+
+    __tablename__ = "twin_equity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    value: Mapped[float] = mapped_column(Float, default=0.0)            # cash + positions marked to market
+    cash: Mapped[float] = mapped_column(Float, default=0.0)
+    positions_value: Mapped[float] = mapped_column(Float, default=0.0)

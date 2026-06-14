@@ -324,6 +324,18 @@ def mandate_review():
     return {"review": brain.mandate_review(force=True)}
 
 
+@app.get("/api/twin")
+def twin_get(refresh: bool = False):
+    """You vs the Twin since inception (or {started:false} if it hasn't been launched yet)."""
+    return brain.twin_compare(refresh=refresh)
+
+
+@app.post("/api/twin/start")
+def twin_start():
+    """Clone your real account into the Twin and start it (one-time)."""
+    return {"twin": brain.twin_start()}
+
+
 @app.get("/api/evals")
 def evals_overview(limit: int = Query(30, ge=1, le=100), kind: str | None = None):
     """The eval worklist + the emerging suite: reviewable traces (with any label) plus the
@@ -331,7 +343,8 @@ def evals_overview(limit: int = Query(30, ge=1, le=100), kind: str | None = None
     return {
         "traces": brain.eval_traces(limit=limit, kind=kind),
         "taxonomy": brain.eval_taxonomy(),
-        "summary": brain.eval_summary(),
+        "summary": brain.eval_summary(),   # your labels (ground truth)
+        "judge": brain.judge_summary(),    # the auto-judge's continuous score
     }
 
 
@@ -456,6 +469,18 @@ async def _brain_loop() -> None:
             await asyncio.to_thread(brain.run_mandate_review)
         except Exception as e:  # noqa: BLE001
             logger.warning("mandate review failed: %s", e)
+        # Drift-triggered plan: fire off-cadence when the book moves materially off its last-planned
+        # shape (a big weight shift, a new/exited position), not just on the weekly clock.
+        try:
+            await asyncio.to_thread(brain.run_mandate_drift)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("mandate drift check failed: %s", e)
+        # Self-grading sweep: auto-score any recent reasoning trace the inline gate didn't reach
+        # (mainly the autonomous re-judge path). Bounded per cycle + gated; a calm system no-ops.
+        try:
+            await asyncio.to_thread(brain.judge_recent_traces)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("judge sweep failed: %s", e)
         # Pre-warm the curated findings feed so it's ready when the user opens the tab.
         try:
             await asyncio.to_thread(brain.prewarm_feed)

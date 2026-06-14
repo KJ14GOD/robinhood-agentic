@@ -15,7 +15,7 @@ from ..data.news import headlines_as_prompt
 from ..data.prices import clean_ticker, get_chart, get_signals
 from ..db import repository as db_repo
 from ..models import DeepResearchCritique, DeepResearchDraft, RiskProfile, TradeTicket, _now
-from . import researcher
+from . import judge, researcher
 
 
 def _draft_prompt(ticker, profile, signals, news, chart_summary, prior, dossier) -> str:
@@ -39,6 +39,12 @@ QUANTITATIVE SIGNALS (grounded — reason from these, cite them, do not invent n
 PRICE ACTION: {chart_summary}
 
 {news}
+
+GROUNDING DISCIPLINE (you are graded on this): every load-bearing claim — a number, a fact, a
+named catalyst — must trace to the dossier, the quantitative signals, or the news above, and the
+source or figure belongs in your evidence list. If something isn't supported, don't assert it: drop
+it or flag it explicitly as an assumption and lower conviction. Never invent figures, dates, or
+catalysts. A thesis resting on uncited assertions is weak — price it at low conviction.
 
 Produce: a short research plan (the specific questions you're answering), the strongest
 grounded bull case and bear case, the specific evidence you actually used, a falsifiable
@@ -113,6 +119,15 @@ def run(ticker: str, profile: RiskProfile) -> dict:
         thesis=draft.thesis, catalyst=draft.catalyst, risks=draft.risks,
         suggested_size_pct=draft.suggested_size_pct,
     )
+
+    # Self-grading gate (eval Phase 2). Deep research already argues both sides; the judge is the
+    # orthogonal check against the user's OWN taxonomy — grounding, falsifiability, profile fit —
+    # and repairs a load-bearing flaw once before the dive ships. Evidence = the cited dossier.
+    from .. import mandate as _mandate
+    ticket, assessment, revised = judge.gate_ticket(
+        ticket, profile, signals_prompt=signals.as_prompt(),
+        evidence_text=dossier or news, sources=[], mandate_block=_mandate.mandate_prompt())
+
     research_state.update_from_ticket(ticket)  # updates the stored thesis + watchlist + event
     try:
         if not shadow.has_open(ticker, source="deep_research"):
@@ -131,18 +146,21 @@ def run(ticker: str, profile: RiskProfile) -> dict:
         "verdict": ticket.decision_label,
         "action": ticket.action,
         "conviction": ticket.conviction,
-        "thesis": draft.thesis,
-        "catalyst": draft.catalyst,
-        "invalidation": draft.risks,
+        "thesis": ticket.thesis,
+        "catalyst": ticket.catalyst,
+        "invalidation": ticket.risks,
         "changed": changed,
         "note": critique.note,
         "dossier": dossier,
         "research_trace": research.get("trace", []),
+        "assessment": assessment.model_dump() if assessment else None,
+        "revised": revised,
         "as_of": _now(),
     }
 
+    run_id = None
     try:
-        db_repo.save_agent_run(
+        run_id = db_repo.save_agent_run(
             query=f"Deep research: {ticker}",
             answer=_render_text(report),
             kind="deep_research",
@@ -155,5 +173,6 @@ def run(ticker: str, profile: RiskProfile) -> dict:
         )
     except Exception:  # noqa: BLE001
         pass
+    judge.record(run_id, "deep_research", ticker, assessment, revised)
 
     return report

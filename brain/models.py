@@ -531,3 +531,28 @@ class PlanReview(BaseModel):
     alignment: str = Field(description="One or two sentences: how well the current portfolio fits the mandate right now.")
     moves: list[PlanMove] = Field(default_factory=list, description="1-3 concrete moves that would better serve the mandate. Empty if nothing to do.")
     note: str = Field(default="", description="Optional one-line closing thought or watch-item.")
+
+
+# --------------------------------------------------------------------------- #
+# Eval layer — LLM-as-judge (the brain grading its own reasoning)
+# --------------------------------------------------------------------------- #
+class GroundingCheck(BaseModel):
+    """One load-bearing claim from a recommendation, checked against the evidence it had."""
+    claim: str = Field(description="A specific load-bearing claim the call rests on (a number, fact, or named driver).")
+    supported: bool = Field(description="True ONLY if a provided source or signal actually backs this claim.")
+    note: str = Field(default="", description="One line: which source backs it, or why it's unsupported.")
+
+
+class JudgeAssessment(BaseModel):
+    """The judge's structured read of one reasoning trace, scored against the user's OWN failure
+    taxonomy. This is the process eval — did the agent do the job well (grounded, sourced,
+    falsifiable, profile-aware) — judgeable the instant a trace exists, no market wait."""
+    verdict: Literal["good", "mixed", "flawed"] = Field(
+        description="'good' = sound and well-grounded; 'mixed' = usable but with real gaps; 'flawed' = a load-bearing problem.")
+    score: int = Field(ge=0, le=100, description="Overall quality 0-100. Reserve 85+ for genuinely rigorous, well-sourced, falsifiable calls.")
+    failure_modes: list[str] = Field(default_factory=list,
+        description="The taxonomy tag ids that apply (use the offered ids; coin a new snake_case id only for a real mode not listed).")
+    grounding: list[GroundingCheck] = Field(default_factory=list,
+        description="The load-bearing claims and whether each is actually supported by the provided evidence.")
+    rationale: str = Field(description="2-4 sentences of error analysis: what's strong, what's weak, and why this verdict.")
+    fix: str = Field(default="", description="If not 'good': the single most important correction to make. Empty when good.")

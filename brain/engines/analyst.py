@@ -15,6 +15,7 @@ from ..data import sentiment, catalysts
 from ..db import repository as db_repo
 from ..models import RiskProfile, TradeTicket
 from .. import llm, research_state, shadow
+from . import judge
 
 
 def _research_task(ticker: str) -> str:
@@ -61,6 +62,13 @@ QUANTITATIVE SIGNALS (grounded — reason from these, don't invent):
 {social}
 {social_guidance}
 
+GROUNDING DISCIPLINE (you are graded on this): every load-bearing claim — a number, a fact, a
+named catalyst — must be supported by the evidence above (the live web research, the quantitative
+signals, or the recent catalysts). If the evidence doesn't support a claim, do not assert it: drop
+it, or mark it explicitly as an assumption and lower your conviction. Never state a figure, date,
+or catalyst that isn't in the provided evidence. A thesis resting on uncited assertions is a weak
+thesis — price it at low conviction.
+
 Decide the right action (buy / add / hold / trim / sell / watch) for THIS investor given
 their risk profile{' and especially their mandate above' if mandate_block else ''}. Give a falsifiable thesis, the concrete
 catalyst and rough timing, the risks that would break it, a suggested position size as % of
@@ -68,23 +76,36 @@ portfolio, and one line on why it fits (or how to size it to fit) their goal. Be
 
     ticket = llm.parse(prompt, TradeTicket, max_tokens=2500)
     ticket.ticker = ticker
-    # Persist the cited evidence this call read, so the analysis is auditable later
-    # (same trail as re-judge / deep research). Best-effort; never blocks the result.
-    if brief.strip():
-        try:
-            db_repo.save_agent_run(
-                query=f"Analyze {ticker}",
-                answer=brief,
-                kind="analyst",
-                steps=[{"type": "analyst", "ticker": ticker, "sources": sources,
-                        "action": ticket.action, "label": ticket.decision_label,
-                        "conviction": ticket.conviction, "thesis": ticket.thesis,
-                        "catalyst": ticket.catalyst, "risks": ticket.risks}],
-                tools_used="web_search", model=llm.MODEL,
-            )
+
+    # Self-grading gate (eval Phase 2): judge the call against the user's own failure taxonomy
+    # and, if it's flawed on a load-bearing mode, let it repair itself ONCE before it ships. The
+    # (possibly revised) ticket is what flows on into shadow + memory + the user's hands.
+    signals_prompt = signals.as_prompt()
+    ticket, assessment, revised = judge.gate_ticket(
+        ticket, profile, signals_prompt=signals_prompt,
+        evidence_text=brief, sources=sources, mandate_block=mandate_block)
+
+    # Persist the trace + cited evidence so the analysis is auditable later (same trail as
+    # re-judge / deep research). Always write the run so the judge's score has a trace to attach
+    # to — even on a degraded (no-web) call. Best-effort; never blocks the result.
+    run_id = None
+    try:
+        run_id = db_repo.save_agent_run(
+            query=f"Analyze {ticker}",
+            answer=brief,
+            kind="analyst",
+            steps=[{"type": "analyst", "ticker": ticker, "sources": sources,
+                    "action": ticket.action, "label": ticket.decision_label,
+                    "conviction": ticket.conviction, "thesis": ticket.thesis,
+                    "catalyst": ticket.catalyst, "risks": ticket.risks, "revised": revised}],
+            tools_used="web_search" if brief.strip() else "", model=llm.MODEL,
+        )
+        if sources:
             db_repo.record_evidence(ticker, sources, kind="web", engine="analyst")
-        except Exception:  # noqa: BLE001
-            pass
+    except Exception:  # noqa: BLE001
+        pass
+    judge.record(run_id, "analyst", ticker, assessment, revised)
+
     if log_shadow:
         shadow.log_recommendation(ticket, source="analyst", profile=profile, signals=signals)
     research_state.update_from_ticket(ticket)
