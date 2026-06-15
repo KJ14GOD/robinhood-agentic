@@ -485,8 +485,6 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
     """Deterministic risk/capital governor between LLM proposal and queued orders."""
     held = {p["ticker"].upper(): p for p in v.get("positions", [])}
     allowed = set(universe) | set(held)
-    max_pct = max(1.0, float(getattr(profile, "max_single_position_pct", 15.0) or 15.0))
-    total_value = max(float(v.get("value") or 0.0), 1.0)
     policy = _policy_stats()
     accepted: list[tuple[int, object]] = []
     rejected: list[tuple[object, str]] = []
@@ -521,14 +519,9 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
                 notes[_move_key(m, idx)] = f"Critic capped sell/trim from ${m.usd:,.0f} to owned value ${max_sell:,.0f}."
                 m.usd = max_sell
         if m.action in ("buy", "add"):
-            cur = float(held.get(m.ticker, {}).get("market_value") or 0.0)
-            room = max(0.0, total_value * max_pct / 100.0 - cur)
-            if room <= 0:
-                rejected.append((m, f"Rejected by critic: would breach {max_pct:.0f}% single-position cap."))
-                continue
-            if m.usd > room:
-                notes[_move_key(m, idx)] = f"Critic capped buy/add from ${m.usd:,.0f} to ${room:,.0f} position room."
-                m.usd = room
+            # No single-position cap — Autopilot decides its own concentration on purpose (that's the
+            # whole point). The only hard limit on a buy is fixed capital, enforced below. Policy
+            # memory still nudges sizing on tactics with a weak reviewed track record.
             st = policy.get(m.tactic)
             if st and st["count"] >= 3 and st["avg_alpha"] < -6 and st["win_rate"] < 34:
                 rejected.append((m, f"Rejected by critic: tactic {m.tactic} has weak reviewed results ({st['avg_alpha']:+.1f}% avg alpha)."))
@@ -616,7 +609,9 @@ AUTOPILOT POLICY MEMORY (reviewed paper trades only):
 Decide your moves for this cycle. You set the pace — trade as much or as little as warranted, including
 nothing at all. Size each move in DOLLARS. Sells/trims free up cash for buys; never spend more cash than
 you have (sell first if you must). Take profit or cut losers per your own exit rules; don't churn for its
-own sake. For every move, classify the tactic, horizon, review_after_days, updated thesis, and exit
+own sake. Position sizing and concentration are YOUR call — you may concentrate in a high-conviction
+name beyond the profile's comfort cap if you judge it worth the risk; treat that cap as a preference,
+not a hard limit. For every move, classify the tactic, horizon, review_after_days, updated thesis, and exit
 rule. Ground every move in the signals, policy memory, and mandate — this is real performance you'll
 be judged on."""
 

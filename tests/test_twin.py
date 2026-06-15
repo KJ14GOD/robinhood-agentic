@@ -210,16 +210,16 @@ class TwinTests(unittest.TestCase):
         self.assertAlmostEqual(sum(t["value"] for t in pending), 2000.0, places=2)
         self.assertTrue(all("fixed capital" in t["critic_note"] for t in pending))
 
-    def test_critic_caps_position_size(self):
-        twin.inception(real_pf=self.real)
-        self._decide_with(TwinDecision(summary="Oversize.", moves=[
-            TwinMove(ticker="GOOGL", action="buy", usd=2000, reasoning="too large",
-                     conviction=6, tactic="theme_exposure"),
+    def test_critic_does_not_cap_position_size(self):
+        # No single-position cap — Autopilot sizes its own concentration; only fixed capital limits it.
+        twin.inception(real_pf=self.real)   # $4,000 book, $2,000 cash
+        self._decide_with(TwinDecision(summary="Concentrate.", moves=[
+            TwinMove(ticker="GOOGL", action="buy", usd=2000, reasoning="high-conviction concentrate",
+                     conviction=8, tactic="theme_exposure"),
         ]), candidates={"GOOGL": "test"}, profile=RiskProfile(max_single_position_pct=15))
         pending = repo.pending_twin_trades()
         self.assertEqual(len(pending), 1)
-        self.assertAlmostEqual(pending[0]["value"], 600.0, places=2)  # 15% of $4,000
-        self.assertIn("position room", pending[0]["critic_note"])
+        self.assertAlmostEqual(pending[0]["value"], 2000.0, places=2)  # full size — not capped to 15%
 
     def test_stale_pending_batches_are_canceled_before_fill(self):
         twin.inception(real_pf=self.real)
