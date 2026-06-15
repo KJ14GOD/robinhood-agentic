@@ -41,6 +41,13 @@ def init_db() -> None:
 _ADDITIVE_COLUMNS = [
     "ALTER TABLE missions ADD COLUMN IF NOT EXISTS last_seeded_at TIMESTAMP WITH TIME ZONE",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS tactic VARCHAR(60) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS decision_price DOUBLE PRECISION DEFAULT 0",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS preflight_note TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS source_theme_key VARCHAR(80) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS source_theme_name TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS market_regime VARCHAR(40) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS plan_step INTEGER DEFAULT 0",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS depends_on_json TEXT DEFAULT '[]'",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS critic_note TEXT DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS horizon VARCHAR(80) DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS thesis TEXT DEFAULT ''",
@@ -53,6 +60,9 @@ _ADDITIVE_COLUMNS = [
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_alpha_pct DOUBLE PRECISION DEFAULT 0",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS review_note TEXT DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE",
+    "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS source_theme_key VARCHAR(80) DEFAULT ''",
+    "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS source_theme_name TEXT DEFAULT ''",
+    "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS market_regime VARCHAR(40) DEFAULT ''",
 ]
 
 

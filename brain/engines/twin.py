@@ -184,6 +184,83 @@ def _current_pending_trades() -> list[dict]:
     return batches[-1]
 
 
+def _price_drift(now_price: float, decision_price: float) -> float:
+    return ((now_price - decision_price) / decision_price * 100.0) if decision_price > 0 and now_price > 0 else 0.0
+
+
+def _recent_thesis_break_tickers() -> set[str]:
+    try:
+        return {e.get("ticker", "").upper() for e in db_repo.recent_events(
+            limit=80, within_hours=24.0, event_types=["thesis_broken"]) if e.get("ticker")}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _expected_sell_proceeds(t: dict, price: float) -> float:
+    if price <= 0:
+        return 0.0
+    pos = db_repo.get_twin_position(t["ticker"])
+    held = float(pos.get("shares") or 0.0) if pos else 0.0
+    if held <= 0:
+        return 0.0
+    usd = float(t.get("value") or 0.0)
+    want = (usd / price) if usd > 0 else float(t.get("shares") or 0.0)
+    return min(want, held) * price
+
+
+def _preflight_pending(pending: list[dict], qmap: dict[str, float], cash: float) -> list[dict]:
+    """Final stale-plan check before queued Autopilot orders fill.
+
+    This is deterministic and cheap: reprice the queued legs, cancel obvious stale/chase orders, and
+    rescale buy legs if canceled/changed funding means the original plan no longer fits fixed capital.
+    """
+    cancel_notes: dict[int, str] = {}
+    broken = _recent_thesis_break_tickers()
+    for t in pending:
+        tid = int(t.get("id") or 0)
+        if not tid:
+            continue
+        action = t.get("action")
+        tk = t.get("ticker", "").upper()
+        price = qmap.get(tk, 0.0)
+        decision_price = float(t.get("decision_price") or 0.0)
+        drift = _price_drift(price, decision_price)
+        if action in ("buy", "add") and tk in broken:
+            cancel_notes[tid] = f"Preflight canceled: fresh thesis-break event appeared for {tk} after the plan was queued."
+        elif action in ("buy", "add") and decision_price > 0 and drift > config.TWIN_PREFLIGHT_BUY_MAX_UP_PCT:
+            cancel_notes[tid] = (f"Preflight canceled: {tk} moved {drift:+.1f}% above the decision quote "
+                                 f"({decision_price:.2f} → {price:.2f}); not chasing stale entry.")
+        elif action in ("sell", "trim") and decision_price > 0 and drift < -config.TWIN_PREFLIGHT_SELL_MAX_DOWN_PCT:
+            urgent = (t.get("tactic") or "") in {"risk_reduction", "defensive_rotation"}
+            if not urgent:
+                cancel_notes[tid] = (f"Preflight canceled: {tk} moved {drift:+.1f}% below the decision quote "
+                                     f"({decision_price:.2f} → {price:.2f}); avoiding stale gap-down sale.")
+    if cancel_notes:
+        db_repo.cancel_twin_trades(list(cancel_notes), reason=cancel_notes)
+
+    live = [t for t in pending if int(t.get("id") or 0) not in cancel_notes]
+    projected_cash = cash + sum(_expected_sell_proceeds(t, qmap.get(t["ticker"], 0.0))
+                                for t in live if t.get("action") in ("sell", "trim"))
+    buys = [t for t in live if t.get("action") in ("buy", "add")]
+    total_buy = sum(float(t.get("value") or 0.0) for t in buys)
+    if buys and total_buy > projected_cash:
+        if projected_cash <= 0:
+            notes = {int(t["id"]): "Preflight canceled: funding legs no longer provide cash for this buy."
+                     for t in buys if t.get("id")}
+            db_repo.cancel_twin_trades(list(notes), reason=notes)
+            live = [t for t in live if int(t.get("id") or 0) not in notes]
+        else:
+            scale = projected_cash / total_buy
+            for t in buys:
+                old = float(t.get("value") or 0.0)
+                new = old * scale
+                note = f"Preflight resized: buy/add scaled from ${old:,.0f} to ${new:,.0f} after funding changed."
+                db_repo.resize_twin_trade(int(t["id"]), new, note=note)
+                t["value"] = new
+                t["preflight_note"] = note
+    return live
+
+
 def execute_pending(force: bool = False, refresh: bool = True) -> list[dict]:
     """Fill queued orders at live prices — ONLY while the market is open (unless forced, e.g. a
     manual run or a test). Orders carry a DOLLAR intent (`value`) and are priced HERE, at fill, so
@@ -196,8 +273,16 @@ def execute_pending(force: bool = False, refresh: bool = True) -> list[dict]:
     pending = _current_pending_trades()
     if not pending:
         return []
+    pending = sorted(pending, key=lambda t: (
+        int(t.get("plan_step") or 99),
+        {"sell": 0, "trim": 1, "add": 2, "buy": 3}.get(t.get("action"), 8),
+        int(t.get("id") or 0),
+    ))
     cash = float((state() or {}).get("cash") or 0.0)
     qmap = _quote_map([t["ticker"] for t in pending], refresh=refresh)
+    pending = _preflight_pending(pending, qmap, cash)
+    if not pending:
+        return []
     bench_price = get_quote("SPY", refresh=refresh).price or 0.0
     fills: list[dict] = []
     for t in pending:
@@ -296,7 +381,10 @@ def _schedule_fill_reviews(fill: dict, bench_price: float) -> None:
             tactic=fill.get("tactic") or "", horizon=fill.get("horizon") or "",
             entry_price=float(fill.get("price") or 0.0), bench_entry=float(bench_price or 0.0),
             sector_symbol=sym, sector_entry=sec_price,
-            windows=_windows_for(fill.get("horizon"), fill.get("tactic")))
+            windows=_windows_for(fill.get("horizon"), fill.get("tactic")),
+            source_theme_key=fill.get("source_theme_key") or "",
+            source_theme_name=fill.get("source_theme_name") or "",
+            market_regime=fill.get("market_regime") or "")
     except Exception:  # noqa: BLE001
         return
 
@@ -433,6 +521,40 @@ def position_health(ticker: str) -> dict:
             "sector_symbol": r.get("sector_symbol") or "", "note": r.get("note") or ""}
 
 
+def lessons() -> dict:
+    """Human-readable Autopilot lessons from reviewed paper trades."""
+    book = db_repo.twin_lesson_book()
+    bandit = db_repo.twin_contextual_bandit()
+    tactics = book.get("tactics", [])
+    sectors = book.get("sectors", [])
+    rules: list[str] = []
+
+    for t in tactics[:4]:
+        name = str(t.get("key") or "trade").replace("_", " ")
+        if t.get("count", 0) < 2:
+            continue
+        if t.get("break_rate", 0) >= 34:
+            rules.append(f"{name}: thesis breaks are too frequent; require stronger evidence or smaller sizing.")
+        elif t.get("avg_sector_alpha", 0) > 1 and t.get("win_rate", 0) >= 50:
+            rules.append(f"{name}: working so far; keep testing with measured size.")
+        elif t.get("avg_sector_alpha", 0) < -1:
+            rules.append(f"{name}: lagging its sector; size down until evidence improves.")
+
+    for s in sectors[:3]:
+        sec = s.get("key") or "market"
+        best = (s.get("best_tactic") or "").replace("_", " ")
+        if s.get("count", 0) >= 2 and best:
+            rules.append(f"{sec}: best observed tactic is {best}.")
+
+    if not rules:
+        rules.append("Not enough judged windows yet. Autopilot is collecting evidence before changing behavior.")
+
+    return {**book, "rules": rules[:6], "bandit": {
+        "top": bandit.get("top", [])[:5],
+        "bottom": bandit.get("bottom", [])[:5],
+    }}
+
+
 def compare(real_pf=None, refresh: bool = False) -> dict:
     """The race: You vs the Twin since inception. Both started equal at inception_value, so each
     side's return is off that same base (assumes no external deposits/withdrawals — noted in UI)."""
@@ -460,7 +582,7 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
         "inception_at": f.get("inception_at", ""),
         "inception_value": v0,
         "twin": {"value": twin_now, "cash": v["cash"], "return_pct": ret(twin_now),
-                 "positions": v["positions"]},
+                 "positions": [{**p, "health": position_health(p["ticker"])} for p in v["positions"]]},
         "real": {"value": real_now, "cash": float(pf.cash or 0.0), "return_pct": ret(real_now),
                  "positions_value": real_mark["positions_value"],
                  "holdings": [{"ticker": h.ticker, "shares": h.quantity, "market_value": h.market_value,
@@ -481,6 +603,7 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
         "real_equity_curve": db_repo.real_equity_curve(getattr(pf, "source", "") or "",
                                                        since_iso=f.get("inception_at")),
         "trades": db_repo.recent_twin_trades(200),
+        "lessons": lessons(),
     }
 
 
@@ -498,6 +621,25 @@ def _screen_score(r: ScreenRow) -> float:
     elif r.rsi_14 > 82:
         s -= 18
     return s
+
+
+def _autonomous_theme_sources() -> dict[str, dict]:
+    sources: dict[str, dict] = {}
+    try:
+        for th in db_repo.autonomous_themes(status="active", limit=8, min_score=45.0):
+            for c in (th.get("candidates") or [])[:6]:
+                tk = (c.get("ticker") or "").upper()
+                if not tk:
+                    continue
+                sources.setdefault(tk, {
+                    "key": th.get("key") or "",
+                    "name": th.get("name") or "",
+                    "score": th.get("score") or 0,
+                    "reason": c.get("reason") or "",
+                })
+    except Exception:  # noqa: BLE001
+        pass
+    return sources
 
 
 def _candidate_universe(held: set[str]) -> dict:
@@ -525,6 +667,12 @@ def _candidate_universe(held: set[str]) -> dict:
                 uni.setdefault(c.ticker.upper(), f"mission {m.title} / {c.label}: {c.reason[:90]}")
     except Exception:  # noqa: BLE001
         pass
+    for tk, src in _autonomous_theme_sources().items():
+        uni.setdefault(
+            tk,
+            f"autonomous theme {src.get('name')} [{src.get('key')}] score {src.get('score', 0):.0f}: "
+            f"{(src.get('reason') or '')[:110]}",
+        )
     try:
         for e in db_repo.recent_events(limit=80, within_hours=96):
             tk = (e.get("ticker") or "").upper()
@@ -584,37 +732,12 @@ def _events_block(names: list[str]) -> str:
 
 
 def review_due_trades(refresh: bool = False) -> list[dict]:
-    """Stage 3 self-review: score filled Twin trades after their review window matures.
+    """Compatibility wrapper for the authoritative Stage 3 review path.
 
-    This is deterministic policy learning, not an LLM judgement. It records whether each tactic
-    produced benchmark-relative alpha at the declared horizon, then future decisions read the
-    aggregate policy memory.
+    Older code called this SPY-only trade reviewer directly. The only live review system is now the
+    multi-window, sector-relative, thesis-aware reviewer backed by twin_trade_reviews.
     """
-    due = db_repo.due_twin_review_trades()
-    if not due:
-        return []
-    qmap = _quote_map([t["ticker"] for t in due] + ["SPY"], refresh=refresh)
-    bench_last = qmap.get("SPY", 0.0)
-    reviewed = []
-    for t in due:
-        entry = float(t.get("price") or 0.0)
-        last = qmap.get(t["ticker"], 0.0)
-        if entry <= 0 or last <= 0:
-            continue
-        sign = -1.0 if t.get("action") in ("sell", "trim") else 1.0
-        stock_pct = (last - entry) / entry * 100.0
-        bench_entry = float(t.get("bench_entry_price") or 0.0)
-        bench_pct = ((bench_last - bench_entry) / bench_entry * 100.0) if bench_entry > 0 and bench_last > 0 else 0.0
-        ret = sign * stock_pct
-        alpha = sign * (stock_pct - bench_pct) if bench_entry > 0 and bench_last > 0 else ret
-        verdict = "worked" if alpha > 0 else "lagged"
-        tactic = t.get("tactic") or t.get("action") or "trade"
-        note = (f"{tactic} {verdict}: {t['ticker']} returned {ret:+.1f}% "
-                f"vs SPY-adjusted alpha {alpha:+.1f}% after {t.get('review_after_days') or 7}d.")
-        db_repo.save_twin_review(t["id"], last_price=last, bench_last_price=bench_last,
-                                 return_pct=ret, alpha_pct=alpha, note=note)
-        reviewed.append({**t, "last_price": last, "return_pct": ret, "alpha_pct": alpha, "note": note})
-    return reviewed
+    return review_windows(refresh=refresh)
 
 
 def _policy_memory() -> str:
@@ -631,36 +754,105 @@ def _policy_memory() -> str:
         instruction = "lean in modestly" if ok else "size down or demand better evidence"
         lines.append(f"- {tactic}: {st['count']} reviewed, avg alpha {st['avg_alpha']:+.1f}%{extra}, "
                      f"win rate {st['win_rate']:.0f}% — {instruction}.")
+    try:
+        book = db_repo.twin_lesson_book()
+        for s in (book.get("sectors") or [])[:4]:
+            if s.get("count", 0) < 2:
+                continue
+            best = (s.get("best_tactic") or "").replace("_", " ")
+            lines.append(f"- Sector {s['key']}: {s['count']} judged, sector alpha "
+                         f"{s['avg_sector_alpha']:+.1f}%, best tactic {best or 'unclear'}.")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        bandit = db_repo.twin_contextual_bandit()
+        if bandit.get("top") or bandit.get("bottom"):
+            lines.append("Contextual bandit priors (automatic; use as sizing/selection pressure, not manual rules):")
+        for a in (bandit.get("top") or [])[:3]:
+            lines.append(f"- Lean-in context: {a['label']} — reward {a['avg_reward']:+.1f}, "
+                         f"{a['count']} judged, confidence {a['confidence']:.0%}.")
+        for a in (bandit.get("bottom") or [])[:3]:
+            lines.append(f"- Avoid/size-down context: {a['label']} — reward {a['avg_reward']:+.1f}, "
+                         f"{a['count']} judged, thesis-break {a['break_rate']:.0f}%.")
+    except Exception:  # noqa: BLE001
+        pass
     return "\n".join(lines)
 
 
 def _policy_stats() -> dict[str, dict]:
-    """Per-tactic learned stats. Prefers the mature multi-window reviews (sector-relative alpha +
-    thesis-break rate); falls back to the legacy single-window trade reviews when none exist yet."""
+    """Per-tactic learned stats from the authoritative multi-window review ledger."""
     wins = db_repo.twin_window_policy()
-    if wins:
-        return {w["tactic"]: {
-            "count": w["count"],
-            "avg_alpha": w["avg_sector_alpha"] if w["avg_sector_alpha"] else w["avg_spy_alpha"],
-            "avg_spy_alpha": w["avg_spy_alpha"], "avg_sector_alpha": w["avg_sector_alpha"],
-            "win_rate": w["win_rate"], "break_rate": w["break_rate"]} for w in wins}
-    rows = [r for r in db_repo.recent_twin_trades(500)
-            if r.get("status") == "filled" and r.get("review_status") == "reviewed"]
-    groups: dict[str, list[dict]] = {}
-    for r in rows:
-        groups.setdefault(r.get("tactic") or r.get("action") or "trade", []).append(r)
-    out: dict[str, dict] = {}
-    for tactic, rs in groups.items():
-        alphas = [float(r.get("review_alpha_pct") or 0.0) for r in rs]
-        if not alphas:
-            continue
-        out[tactic] = {"count": len(alphas), "avg_alpha": sum(alphas) / len(alphas),
-                       "win_rate": sum(1 for a in alphas if a > 0) / len(alphas) * 100.0}
-    return out
+    return {w["tactic"]: {
+        "count": w["count"],
+        "avg_alpha": w["avg_sector_alpha"] if w["avg_sector_alpha"] else w["avg_spy_alpha"],
+        "avg_spy_alpha": w["avg_spy_alpha"], "avg_sector_alpha": w["avg_sector_alpha"],
+        "win_rate": w["win_rate"], "break_rate": w["break_rate"]} for w in wins}
+
+
+def _market_regime(refresh: bool = False) -> str:
+    """Coarse automatic tape regime for contextual policy memory."""
+    try:
+        sigs = get_signals_many(["SPY", "QQQ"], refresh=refresh)
+        rows = [s for s in sigs.values() if getattr(s, "price", 0.0)]
+        if not rows:
+            return "unknown"
+        avg_3m = sum(getattr(s, "ret_3m_pct", 0.0) or 0.0 for s in rows) / len(rows)
+        avg_rsi = sum(getattr(s, "rsi_14", 50.0) or 50.0 for s in rows) / len(rows)
+        above = sum(1 for s in rows if getattr(s, "above_200d", False))
+        if avg_rsi >= 72 and above == len(rows):
+            return "risk_on_overextended"
+        if above == len(rows) and avg_3m >= 5:
+            return "risk_on"
+        if above == 0 or avg_3m <= -5:
+            return "risk_off"
+        if avg_rsi <= 35:
+            return "oversold"
+        return "mixed"
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def _sector_symbol_for(ticker: str, refresh: bool = False) -> str:
+    try:
+        return sector_etf(get_signals(ticker, refresh=refresh).sector or "") or "market"
+    except Exception:  # noqa: BLE001
+        return "market"
+
+
+def _bandit_match(m, regime: str, sector_symbol: str, by_key: dict | None = None) -> dict | None:
+    """Most specific contextual bandit arm available for a move."""
+    if by_key is None:
+        try:
+            by_key = db_repo.twin_contextual_bandit().get("by_key", {})
+        except Exception:  # noqa: BLE001
+            return None
+    tactic = m.tactic or m.action or "trade"
+    theme = m.source_theme_key or ""
+    keys = []
+    if theme:
+        keys.extend([
+            f"theme_regime:{theme}|{regime}",
+            f"tactic_theme:{tactic}|{theme}",
+        ])
+    keys.extend([
+        f"tactic_sector:{tactic}|{sector_symbol}",
+        f"tactic_regime:{tactic}|{regime}",
+        f"sector_regime:{sector_symbol}|{regime}",
+        f"tactic:{tactic}",
+    ])
+    for key in keys:
+        arm = by_key.get(key)
+        if arm and arm.get("count", 0) >= 2:
+            return arm
+    return None
 
 
 def _move_key(m, idx: int) -> str:
     return f"{idx}:{m.ticker.upper()}:{m.action}"
+
+
+def _dep_label(m) -> str:
+    return f"{m.action.upper()} {m.ticker}"
 
 
 def _default_review_days(m) -> int:
@@ -680,7 +872,13 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
     """Deterministic risk/capital governor between LLM proposal and queued orders."""
     held = {p["ticker"].upper(): p for p in v.get("positions", [])}
     allowed = set(universe) | set(held)
+    theme_sources = _autonomous_theme_sources()
     policy = _policy_stats()
+    regime = _market_regime(refresh=False)
+    try:
+        bandit_by_key = db_repo.twin_contextual_bandit().get("by_key", {})
+    except Exception:  # noqa: BLE001
+        bandit_by_key = {}
     accepted: list[tuple[int, object]] = []
     rejected: list[tuple[object, str]] = []
     notes: dict[str, str] = {}
@@ -705,6 +903,12 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
         if m.action in ("buy", "add") and m.ticker not in allowed:
             rejected.append((m, "Rejected by critic: ticker was not in the grounded candidate universe."))
             continue
+        if m.action in ("buy", "add") and m.ticker in theme_sources:
+            src = theme_sources[m.ticker]
+            m.source_theme_key = src.get("key") or ""
+            m.source_theme_name = src.get("name") or ""
+        sector_symbol = (_sector_symbol_for(m.ticker, refresh=False)
+                         if bandit_by_key and m.action in ("buy", "add") else "market")
         if m.action in ("sell", "trim") and m.ticker not in held:
             rejected.append((m, "Rejected by critic: Autopilot does not own shares to sell/trim."))
             continue
@@ -727,6 +931,27 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
                 prior = notes.get(_move_key(m, idx), "")
                 notes[_move_key(m, idx)] = (prior + " " if prior else "") + (
                     f"Critic halved size from ${old:,.0f} to ${m.usd:,.0f}; tactic {m.tactic} has weak reviewed results."
+                )
+            arm = _bandit_match(m, regime, sector_symbol, bandit_by_key)
+            if arm and arm.get("count", 0) >= 3 and arm.get("stance") == "avoid":
+                rejected.append((m, f"Rejected by contextual bandit: {arm['label']} has poor reviewed reward "
+                                f"({arm['avg_reward']:+.1f}, {arm['count']} judged)."))
+                continue
+            if arm and arm.get("count", 0) >= 2 and arm.get("stance") in {"size_down", "avoid"}:
+                old = m.usd
+                m.usd *= 0.5
+                prior = notes.get(_move_key(m, idx), "")
+                notes[_move_key(m, idx)] = (prior + " " if prior else "") + (
+                    f"Contextual bandit halved size from ${old:,.0f} to ${m.usd:,.0f}; "
+                    f"{arm['label']} reward {arm['avg_reward']:+.1f} across {arm['count']} judged windows."
+                )
+            elif arm and arm.get("count", 0) >= 2 and arm.get("stance") == "lean_in" and arm.get("confidence", 0) >= 0.33:
+                old = m.usd
+                m.usd *= 1.15
+                prior = notes.get(_move_key(m, idx), "")
+                notes[_move_key(m, idx)] = (prior + " " if prior else "") + (
+                    f"Contextual bandit nudged size from ${old:,.0f} to ${m.usd:,.0f}; "
+                    f"{arm['label']} reward {arm['avg_reward']:+.1f} across {arm['count']} judged windows."
                 )
         if m.usd < _MIN_ORDER_USD and m.action != "hold":
             rejected.append((m, "Rejected by critic: adjusted size fell below minimum order."))
@@ -751,7 +976,25 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
             rejected.append((m, "Rejected by critic: no cash or sale proceeds available to fund buy/add."))
         accepted = [(idx, m) for idx, m in accepted if m.action not in ("buy", "add")]
 
-    final_moves = [m for _, m in accepted if m.action == "hold" or m.usd >= _MIN_ORDER_USD]
+    ordered = sorted(accepted, key=lambda x: (
+        {"sell": 0, "trim": 1, "add": 2, "buy": 3, "hold": 9}.get(x[1].action, 8),
+        x[0],
+    ))
+    funders = [_dep_label(m) for _, m in ordered if m.action in ("sell", "trim") and m.usd >= _MIN_ORDER_USD]
+    final_moves = []
+    step = 1
+    for _, m in ordered:
+        if m.action != "hold" and m.usd < _MIN_ORDER_USD:
+            continue
+        m.plan_step = step
+        step += 1
+        if m.action in ("buy", "add") and funders:
+            existing = [str(x) for x in (m.depends_on or []) if str(x).strip()]
+            m.depends_on = list(dict.fromkeys(existing + funders))
+        elif m.action in ("sell", "trim"):
+            m.depends_on = []
+        final_moves.append(m)
+
     summary = decision.summary
     if rejected or notes:
         summary = (summary + f" Critic adjusted {len(notes)} move(s), rejected {len(rejected)}.").strip()
@@ -788,8 +1031,8 @@ INVESTOR PROFILE (secondary to the mandate): {profile.describe()}
 YOUR BOOK:
 {_book_block(v)}
 
-CANDIDATES you may buy (grounded from memory, missions, and broad market screening — choose from
-this list only; never invented tickers):
+CANDIDATES you may buy (grounded from memory, user missions, Signal's autonomous theme scout, and
+broad market screening — choose from this list only; never invented tickers):
 {cand}
 
 QUANTITATIVE SIGNALS:
@@ -803,8 +1046,9 @@ AUTOPILOT POLICY MEMORY (reviewed paper trades only):
 
 Decide your moves for this cycle. You set the pace — trade as much or as little as warranted, including
 nothing at all. Size each move in DOLLARS. Sells/trims free up cash for buys; never spend more cash than
-you have (sell first if you must). Take profit or cut losers per your own exit rules; don't churn for its
-own sake. Position sizing and concentration are YOUR call — you may concentrate in a high-conviction
+you have (sell first if you must). Treat this as an ORDERED execution plan: put funding/risk-reduction
+legs before the buys they enable, and use depends_on to explain which earlier trims/sells fund a buy.
+Take profit or cut losers per your own exit rules; don't churn for its own sake. Position sizing and concentration are YOUR call — you may concentrate in a high-conviction
 name beyond the profile's comfort cap if you judge it worth the risk; treat that cap as a preference,
 not a hard limit. For every move, classify the tactic, horizon, review_after_days, updated thesis, and exit
 rule. Ground every move in the signals, policy memory, and mandate — this is real performance you'll
@@ -819,13 +1063,20 @@ def _apply(decision: TwinDecision, critic_notes: dict[str, str] | None = None,
     order = {"sell": 0, "trim": 1, "add": 2, "buy": 3, "hold": 9}
     queued = []
     critic_notes = critic_notes or {}
+    quote_map = _quote_map([m.ticker for m in decision.moves if getattr(m, "ticker", "")], refresh=False)
+    regime = _market_regime(refresh=False)
     for m, note in (rejected or []):
         if (m.usd or 0) > 0:
             db_repo.add_twin_trade(m.ticker, m.action, 0.0, usd=float(m.usd),
                                    reasoning=m.reasoning or m.thesis, conviction=m.conviction,
                                    status="canceled", tactic=m.tactic, horizon=m.horizon,
                                    thesis=m.thesis, exit_rule=m.exit_rule,
-                                   review_after_days=m.review_after_days, critic_note=note)
+                                   review_after_days=m.review_after_days, critic_note=note,
+                                   source_theme_key=m.source_theme_key,
+                                   source_theme_name=m.source_theme_name,
+                                   plan_step=m.plan_step, depends_on=m.depends_on,
+                                   decision_price=quote_map.get(m.ticker, 0.0),
+                                   market_regime=regime)
     for idx, m in sorted(enumerate(decision.moves), key=lambda x: order.get(x[1].action, 5)):
         db_repo.set_twin_intent(m.ticker, thesis=m.thesis or None, horizon=m.horizon or None,
                                 exit_rule=m.exit_rule or None)
@@ -835,8 +1086,14 @@ def _apply(decision: TwinDecision, critic_notes: dict[str, str] | None = None,
                                reasoning=m.reasoning or m.thesis, conviction=m.conviction,
                                tactic=m.tactic, horizon=m.horizon, thesis=m.thesis,
                                exit_rule=m.exit_rule, review_after_days=m.review_after_days,
-                               critic_note=critic_notes.get(_move_key(m, idx), ""))
-        queued.append({"ticker": m.ticker.upper(), "action": m.action, "usd": m.usd})
+                               critic_note=critic_notes.get(_move_key(m, idx), ""),
+                               source_theme_key=m.source_theme_key,
+                               source_theme_name=m.source_theme_name,
+                               plan_step=m.plan_step, depends_on=m.depends_on,
+                               decision_price=quote_map.get(m.ticker, 0.0),
+                               market_regime=regime)
+        queued.append({"ticker": m.ticker.upper(), "action": m.action, "usd": m.usd,
+                       "plan_step": m.plan_step, "depends_on": m.depends_on})
     return queued
 
 
@@ -846,7 +1103,7 @@ def decide(profile) -> TwinDecision | None:
     + cadence marker. Best-effort — a model hiccup means it simply holds this cycle."""
     if not config.TWIN_ENABLED or not is_running():
         return None
-    review_due_trades(refresh=False)
+    review_windows(refresh=False)
     if _current_pending_trades():
         return None
     v = value(refresh=True)

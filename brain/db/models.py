@@ -332,10 +332,33 @@ class MissionCandidateRecord(Base):
     mission: Mapped[MissionRecord] = relationship(back_populates="candidates")
 
 
+class AutonomousThemeRecord(Base):
+    """A theme discovered by Signal itself, not one the user manually created.
+
+    The Theme Scout writes these from market breadth, recent events, and screener leadership.
+    Autopilot reads active/high-score themes as one candidate source, so the paper fund can form
+    its own research agenda instead of waiting for the user to name sectors."""
+
+    __tablename__ = "autonomous_themes"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    candidates_json: Mapped[str] = mapped_column(Text, default="[]")
+    source: Mapped[str] = mapped_column(String(80), default="theme_scout")
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 Index("ix_position_snapshots_ticker_snapshot", PositionSnapshot.ticker, PositionSnapshot.snapshot_id)
 Index("ix_research_events_ticker_created", ResearchEventRecord.ticker, ResearchEventRecord.created_at)
 Index("ix_shadow_trades_source_closed", ShadowTradeRecord.source, ShadowTradeRecord.closed)
 Index("ix_mission_candidates_mission_ticker", MissionCandidateRecord.mission_id, MissionCandidateRecord.ticker)
+Index("ix_autonomous_themes_status_score", AutonomousThemeRecord.status, AutonomousThemeRecord.score)
 
 
 # --------------------------------------------------------------------------- #
@@ -387,11 +410,18 @@ class TwinTradeRecord(Base):
     action: Mapped[str] = mapped_column(String(10), default="")   # buy | add | trim | sell
     shares: Mapped[float] = mapped_column(Float, default=0.0)
     price: Mapped[float] = mapped_column(Float, default=0.0)       # fill price (0 until filled)
+    decision_price: Mapped[float] = mapped_column(Float, default=0.0)  # quote when the plan was queued
     value: Mapped[float] = mapped_column(Float, default=0.0)       # shares * fill price
     reasoning: Mapped[str] = mapped_column(Text, default="")
     conviction: Mapped[int] = mapped_column(Integer, default=0)
     critic_note: Mapped[str] = mapped_column(Text, default="")
+    preflight_note: Mapped[str] = mapped_column(Text, default="")
     tactic: Mapped[str] = mapped_column(String(60), default="", index=True)
+    source_theme_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    source_theme_name: Mapped[str] = mapped_column(Text, default="")
+    market_regime: Mapped[str] = mapped_column(String(40), default="", index=True)
+    plan_step: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    depends_on_json: Mapped[str] = mapped_column(Text, default="[]")
     horizon: Mapped[str] = mapped_column(String(80), default="")
     thesis: Mapped[str] = mapped_column(Text, default="")
     exit_rule: Mapped[str] = mapped_column(Text, default="")
@@ -436,6 +466,9 @@ class TwinTradeReviewRecord(Base):
     ticker: Mapped[str] = mapped_column(String(20), index=True)
     action: Mapped[str] = mapped_column(String(10), default="")
     tactic: Mapped[str] = mapped_column(String(60), default="", index=True)
+    source_theme_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    source_theme_name: Mapped[str] = mapped_column(Text, default="")
+    market_regime: Mapped[str] = mapped_column(String(40), default="", index=True)
     horizon: Mapped[str] = mapped_column(String(80), default="")
     window: Mapped[str] = mapped_column(String(8), default="", index=True)   # 1d | 1w | 1m | 3m | 6m
     judged: Mapped[bool] = mapped_column(Boolean, default=False)             # scored vs monitoring-only

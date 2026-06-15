@@ -43,7 +43,14 @@ class TwinTests(unittest.TestCase):
     def setUp(self):
         repo.reset_twin()
         self._gq, self._gqs = twin.get_quote, twin.get_quotes
+        self._gs, self._gsm = twin.get_signals, twin.get_signals_many
         twin.get_quote, twin.get_quotes = _fake_quote, _fake_quotes
+        twin.get_signals = lambda t, refresh=False: types.SimpleNamespace(sector="Technology")
+        twin.get_signals_many = lambda names, **k: {
+            t.upper(): types.SimpleNamespace(price=QUOTES.get(t.upper(), 100.0), ret_3m_pct=0.0,
+                                             rsi_14=50.0, above_200d=True, sector="Technology")
+            for t in names
+        }
         QUOTES.clear()
         QUOTES.update({"NVDA": 100.0, "VOO": 200.0, "SPY": 100.0})
         # inception: $2,000 cash + 10 NVDA @100 + 5 VOO @200 = $4,000
@@ -51,6 +58,8 @@ class TwinTests(unittest.TestCase):
 
     def tearDown(self):
         twin.get_quote, twin.get_quotes = self._gq, self._gqs
+        twin.get_signals = self._gs
+        twin.get_signals_many = self._gsm
 
     def test_inception_clones_the_book(self):
         twin.inception(real_pf=self.real)
@@ -237,22 +246,19 @@ class TwinTests(unittest.TestCase):
         self.assertEqual(trades["NVDA"]["status"], "canceled")
         self.assertEqual(trades["VOO"]["status"], "filled")
 
-    def test_review_due_trades_scores_filled_tactic(self):
+    def test_review_due_trades_uses_authoritative_window_reviews(self):
         twin.inception(real_pf=self.real)
-        repo.add_twin_trade("NVDA", "buy", 0.0, usd=500.0, reasoning="pullback setup",
-                            tactic="pullback_in_uptrend", horizon="swing", review_after_days=1)
-        twin.execute_pending(force=True)
-        with repo.db_session() as session:
-            row = session.execute(select(TwinTradeRecord).where(TwinTradeRecord.ticker == "NVDA")).scalars().first()
-            row.filled_at = datetime.now(timezone.utc) - timedelta(days=2)
+        repo.schedule_twin_reviews(1, "NVDA", "buy", "pullback_in_uptrend", "swing",
+                                   entry_price=100.0, bench_entry=100.0, sector_symbol="SPY",
+                                   sector_entry=100.0, windows=[("1m", 30, True)])
+        self._backdate_due()
         QUOTES["NVDA"] = 110.0
         QUOTES["SPY"] = 102.0
         reviewed = twin.review_due_trades(refresh=True)
         self.assertEqual(len(reviewed), 1)
-        trade = repo.recent_twin_trades(1)[0]
-        self.assertEqual(trade["review_status"], "reviewed")
-        self.assertAlmostEqual(trade["review_return_pct"], 10.0, places=1)
-        self.assertAlmostEqual(trade["review_alpha_pct"], 8.0, places=1)
+        self.assertEqual(reviewed[0]["verdict"], "worked")
+        self.assertAlmostEqual(reviewed[0]["return_pct"], 10.0, places=1)
+        self.assertAlmostEqual(reviewed[0]["sector_alpha"], 8.0, places=1)
         self.assertIn("pullback_in_uptrend", twin._policy_memory())
 
     def test_candidate_universe_includes_broad_screen_names(self):
@@ -286,6 +292,105 @@ class TwinTests(unittest.TestCase):
         self.assertAlmostEqual(twin.state()["cash"], 2000.0)    # +400 trim, -400 buy = net flat
         # the filled share count is written back to the trade record (History shows real shares)
         self.assertTrue(all(t["shares"] > 0 for t in repo.recent_twin_trades(5) if t["status"] == "filled"))
+
+    def test_decision_plan_orders_funders_before_buys(self):
+        twin.inception(real_pf=self.real)
+        self._decide_with(TwinDecision(summary="Fund a new buy by trimming first.", moves=[
+            TwinMove(ticker="GOOGL", action="buy", usd=600, reasoning="new idea", conviction=7,
+                     tactic="theme_exposure"),
+            TwinMove(ticker="NVDA", action="trim", usd=400, reasoning="funding trim", conviction=6,
+                     tactic="rebalance"),
+        ]), candidates={"GOOGL": "test"}, profile=RiskProfile(max_single_position_pct=100))
+
+        pending = repo.pending_twin_trades()
+        by_ticker = {p["ticker"]: p for p in pending}
+        self.assertLess(by_ticker["NVDA"]["plan_step"], by_ticker["GOOGL"]["plan_step"])
+        self.assertIn("TRIM NVDA", by_ticker["GOOGL"]["depends_on"])
+
+    def test_execute_pending_uses_plan_step_order(self):
+        twin.inception(real_pf=_pf(0.0, {"NVDA": (10, 100.0)}))
+        repo.add_twin_trade("GOOGL", "buy", 0.0, usd=400.0, reasoning="buy first in DB",
+                            tactic="theme_exposure", plan_step=2, depends_on=["TRIM NVDA"])
+        repo.add_twin_trade("NVDA", "trim", 0.0, usd=400.0, reasoning="funds buy",
+                            tactic="rebalance", plan_step=1)
+        QUOTES["GOOGL"] = 100.0
+        fills = twin.execute_pending(force=True)
+
+        self.assertEqual([f["ticker"] for f in fills], ["NVDA", "GOOGL"])
+        self.assertAlmostEqual(repo.get_twin_position("GOOGL")["shares"], 4.0)
+        self.assertAlmostEqual(twin.state()["cash"], 0.0)
+
+    def test_preflight_cancels_buy_that_ran_above_decision_quote(self):
+        twin.inception(real_pf=self.real)
+        QUOTES["GOOGL"] = 105.0
+        repo.add_twin_trade("GOOGL", "buy", 0.0, usd=100.0, reasoning="entry",
+                            tactic="pullback_in_uptrend", decision_price=100.0)
+
+        fills = twin.execute_pending(force=True)
+
+        self.assertEqual(fills, [])
+        trade = repo.recent_twin_trades(1)[0]
+        self.assertEqual(trade["status"], "canceled")
+        self.assertIn("not chasing stale entry", trade["preflight_note"])
+        self.assertIsNone(repo.get_twin_position("GOOGL"))
+
+    def test_preflight_cancels_buy_after_fresh_thesis_break(self):
+        twin.inception(real_pf=self.real)
+        QUOTES["AMZN"] = 100.0
+        repo.save_research_event("thesis_broken", "AMZN thesis broke", ticker="AMZN", severity="high")
+        repo.add_twin_trade("AMZN", "buy", 0.0, usd=100.0, reasoning="entry",
+                            tactic="theme_exposure", decision_price=100.0)
+
+        fills = twin.execute_pending(force=True)
+
+        self.assertEqual(fills, [])
+        trade = repo.recent_twin_trades(1)[0]
+        self.assertEqual(trade["status"], "canceled")
+        self.assertIn("thesis-break", trade["preflight_note"])
+
+    def test_preflight_cancels_nonurgent_gap_down_trim(self):
+        twin.inception(real_pf=self.real)
+        QUOTES["NVDA"] = 90.0
+        repo.add_twin_trade("NVDA", "trim", 0.0, usd=500.0, reasoning="rebalance",
+                            tactic="rebalance", decision_price=100.0)
+
+        fills = twin.execute_pending(force=True)
+
+        self.assertEqual(fills, [])
+        self.assertAlmostEqual(repo.get_twin_position("NVDA")["shares"], 10.0)
+        trade = repo.recent_twin_trades(1)[0]
+        self.assertEqual(trade["status"], "canceled")
+        self.assertIn("avoiding stale gap-down sale", trade["preflight_note"])
+
+    def test_preflight_allows_urgent_gap_down_risk_trim(self):
+        twin.inception(real_pf=self.real)
+        QUOTES["NVDA"] = 90.0
+        repo.add_twin_trade("NVDA", "trim", 0.0, usd=450.0, reasoning="risk cut",
+                            tactic="risk_reduction", decision_price=100.0)
+
+        fills = twin.execute_pending(force=True)
+
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["ticker"], "NVDA")
+        self.assertAlmostEqual(repo.get_twin_position("NVDA")["shares"], 5.0)
+
+    def test_preflight_resizes_buys_to_available_funding(self):
+        twin.inception(real_pf=_pf(0.0, {"NVDA": (10, 100.0)}))
+        QUOTES.update({"NVDA": 100.0, "GOOGL": 100.0})
+        repo.add_twin_trade("NVDA", "trim", 0.0, usd=100.0, reasoning="funding trim",
+                            tactic="rebalance", plan_step=1, decision_price=100.0)
+        repo.add_twin_trade("GOOGL", "buy", 0.0, usd=200.0, reasoning="new idea",
+                            tactic="theme_exposure", plan_step=2, depends_on=["TRIM NVDA"],
+                            decision_price=100.0)
+
+        fills = twin.execute_pending(force=True)
+
+        self.assertEqual([f["ticker"] for f in fills], ["NVDA", "GOOGL"])
+        self.assertAlmostEqual(repo.get_twin_position("GOOGL")["shares"], 1.0)
+        self.assertAlmostEqual(twin.state()["cash"], 0.0)
+        trade = next(t for t in repo.recent_twin_trades(5) if t["ticker"] == "GOOGL")
+        self.assertEqual(trade["status"], "filled")
+        self.assertIn("Preflight resized", trade["preflight_note"])
 
     def test_decide_holds_when_no_moves(self):
         twin.inception(real_pf=self.real)
@@ -347,6 +452,81 @@ class TwinTests(unittest.TestCase):
         done = self._review_with("active", True, "thesis on track")
         self.assertEqual(done[0]["verdict"], "worked")
         self.assertAlmostEqual(done[0]["sector_alpha"], 6.0, places=1)
+
+    def test_lessons_and_position_health_surface_review_memory(self):
+        twin.inception(real_pf=self.real)
+        repo.schedule_twin_reviews(1, "NVDA", "buy", "momentum_continuation", "swing",
+                                   entry_price=100.0, bench_entry=100.0, sector_symbol="SMH",
+                                   sector_entry=100.0, windows=[("1m", 30, True)])
+        self._backdate_due()
+        QUOTES.update({"NVDA": 110.0, "SPY": 102.0, "SMH": 104.0})
+        self._review_with("stronger", True, "thesis improving")
+
+        lessons = twin.lessons()
+        self.assertEqual(lessons["tactics"][0]["key"], "momentum_continuation")
+        self.assertEqual(lessons["sectors"][0]["key"], "SMH")
+        self.assertTrue(lessons["rules"])
+
+        c = twin.compare(real_pf=self.real, refresh=True)
+        nvda = next(p for p in c["twin"]["positions"] if p["ticker"] == "NVDA")
+        self.assertEqual(nvda["health"]["state"], "stronger")
+        self.assertIn("lessons", c)
+
+    def _seed_review(self, trade_id=1, tactic="pullback_in_uptrend", sector="XLK",
+                     regime="risk_on", sector_alpha=5.0, verdict="worked",
+                     thesis_state="active", source_theme_key="", source_theme_name=""):
+        repo.schedule_twin_reviews(trade_id, "NVDA", "buy", tactic, "swing",
+                                   entry_price=100.0, bench_entry=100.0,
+                                   sector_symbol=sector, sector_entry=100.0,
+                                   windows=[("1m", 30, True)],
+                                   source_theme_key=source_theme_key,
+                                   source_theme_name=source_theme_name,
+                                   market_regime=regime)
+        with repo.db_session() as s:
+            r = s.execute(select(TwinTradeReviewRecord).order_by(TwinTradeReviewRecord.id.desc())).scalars().first()
+            rid = r.id
+        repo.save_twin_review_window(rid, price=105.0, bench_last=101.0, sector_last=100.0,
+                                     return_pct=sector_alpha, spy_alpha_pct=sector_alpha - 1,
+                                     sector_alpha_pct=sector_alpha, drawdown_pct=-2.0,
+                                     thesis_state=thesis_state, verdict=verdict,
+                                     note=f"{tactic} {verdict}")
+
+    def test_contextual_bandit_aggregates_review_contexts(self):
+        twin.inception(real_pf=self.real)
+        self._seed_review(1, tactic="pullback_in_uptrend", sector="XLK", regime="risk_on",
+                          sector_alpha=5.0, verdict="worked")
+        self._seed_review(2, tactic="pullback_in_uptrend", sector="XLK", regime="risk_on",
+                          sector_alpha=4.0, verdict="worked")
+
+        bandit = repo.twin_contextual_bandit()
+        arm = bandit["by_key"]["tactic_sector:pullback_in_uptrend|XLK"]
+
+        self.assertEqual(arm["count"], 2)
+        self.assertEqual(arm["stance"], "lean_in")
+        self.assertGreater(arm["avg_reward"], 2)
+        self.assertTrue(twin.lessons()["bandit"]["top"])
+
+    def test_critic_uses_contextual_bandit_to_size_down_bad_context(self):
+        twin.inception(real_pf=self.real)
+        self._seed_review(1, tactic="theme_exposure", sector="XLK", regime="mixed",
+                          sector_alpha=-8.0, verdict="failed", thesis_state="broken")
+        self._seed_review(2, tactic="theme_exposure", sector="XLK", regime="mixed",
+                          sector_alpha=-6.0, verdict="lagged", thesis_state="weakening")
+        self._seed_review(3, tactic="theme_exposure", sector="XLY", regime="risk_on",
+                          sector_alpha=7.0, verdict="worked", thesis_state="stronger")
+        self._seed_review(4, tactic="theme_exposure", sector="XLY", regime="risk_on",
+                          sector_alpha=6.0, verdict="worked", thesis_state="active")
+        decision = TwinDecision(summary="Try weak context.", moves=[
+            TwinMove(ticker="GOOGL", action="buy", usd=400, reasoning="theme buy",
+                     conviction=6, tactic="theme_exposure"),
+        ])
+
+        adjusted, notes, rejected = twin._critic(decision, twin.value(), RiskProfile(),
+                                                 {"GOOGL": "test candidate"})
+
+        self.assertEqual(rejected, [])
+        self.assertAlmostEqual(adjusted.moves[0].usd, 200.0)
+        self.assertIn("Contextual bandit halved size", next(iter(notes.values())))
 
 
 if __name__ == "__main__":

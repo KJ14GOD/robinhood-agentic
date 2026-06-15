@@ -488,10 +488,15 @@ async def _brain_loop() -> None:
             await asyncio.to_thread(brain.run_mandate_drift)
         except Exception as e:  # noqa: BLE001
             logger.warning("mandate drift check failed: %s", e)
+        # Autonomous theme scout: Signal forms its own research agenda from broad-market leadership
+        # and recent events. Autopilot reads these themes as grounded candidate sources.
+        try:
+            await asyncio.to_thread(brain.run_theme_scout)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("theme scout failed: %s", e)
         # Autopilot (the Twin): its autonomous think (gated to TWIN_DECIDE_HOURS), then fill any
         # queued orders during market hours, then record an equity point so the race line stays live.
         try:
-            await asyncio.to_thread(brain.twin_review_due)
             await asyncio.to_thread(brain.twin_review_windows)
             await asyncio.to_thread(brain.run_twin_decision)
             await asyncio.to_thread(brain.twin_execute_pending)

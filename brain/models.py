@@ -575,6 +575,10 @@ class TwinMove(BaseModel):
     thesis: str = Field(default="", description="Your standing thesis on this name after the move (why you hold it).")
     horizon: str = Field(default="", description="How long you intend to hold: trade, swing, 1-4 weeks, 3-12 months, or multi-year/core.")
     exit_rule: str = Field(default="", description="The concrete thing that would make you sell it.")
+    source_theme_key: str = Field(default="", description="Set by the critic when this move came from Signal's autonomous theme scout.")
+    source_theme_name: str = Field(default="", description="Human-readable autonomous theme name, set by the critic.")
+    plan_step: int = Field(default=0, ge=0, le=50, description="Execution order inside this decision plan. The critic normalizes it before queueing.")
+    depends_on: list[str] = Field(default_factory=list, description="Earlier tickers/actions this leg depends on for funding or risk reduction.")
     review_after_days: int = Field(
         default=7,
         ge=1,

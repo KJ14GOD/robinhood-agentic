@@ -15,7 +15,7 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, judge, memory, missions, monitor, twin
+from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, judge, memory, missions, monitor, theme_scout, twin
 from .engines import deep_research as _deep_research
 from .engines import structural_risk as _structural_risk
 from . import config
@@ -695,8 +695,8 @@ def twin_snapshot() -> dict | None:
 
 
 def twin_review_due() -> list[dict]:
-    """Review matured Autopilot fills and write deterministic policy lessons."""
-    return twin.review_due_trades() if twin.is_running() else []
+    """Compatibility alias for the authoritative multi-window Autopilot reviewer."""
+    return twin.review_windows() if twin.is_running() else []
 
 
 def twin_review_windows() -> list[dict]:
@@ -730,6 +730,11 @@ def run_twin_decision() -> bool:
             title="Autopilot rebalanced",
             summary=(decision.summary + (f" — {movetxt}" if movetxt else ""))[:300])
     return True
+
+
+def run_theme_scout(force: bool = False) -> list[dict]:
+    """Autonomous market theme discovery. This is Signal's own research agenda, not a user mission."""
+    return theme_scout.run_due(force=force)
 
 
 def twin_decide_now() -> dict:

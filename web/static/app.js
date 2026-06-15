@@ -328,7 +328,7 @@ function renderAutopilot() {
   const c = AUTOPILOT;
   box.innerHTML = (!c || !c.started)
     ? apEmptyHTML()
-    : apHeroHTML(c) + apStatusHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
+    : apHeroHTML(c) + apStatusHTML(c) + apLessonsHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
 }
 
 function apControlsHTML(c) {
@@ -426,6 +426,100 @@ function apStatusHTML(c) {
   </div>`;
 }
 
+function lessonStatus(row) {
+  const n = row.count || 0;
+  if (!n) return "learning";
+  if ((row.break_rate || 0) >= 34) return "fragile";
+  if ((row.avg_sector_alpha || 0) > 1 && (row.win_rate || 0) >= 50) return "working";
+  if ((row.avg_sector_alpha || 0) < -1) return "lagging";
+  return "mixed";
+}
+
+function apLessonsHTML(c) {
+  const l = c.lessons || {};
+  const tactics = l.tactics || [];
+  const sectors = l.sectors || [];
+  const themes = l.themes || [];
+  const recent = l.recent || [];
+  const rules = l.rules || [];
+  const bandit = l.bandit || {};
+  const tacticRows = tactics.slice(0, 4).map((t) => {
+    const st = lessonStatus(t);
+    return `<div class="ap-lesson-row">
+      <div>
+        <strong>${esc((t.key || "trade").replaceAll("_", " "))}</strong>
+        <span>${esc(t.count || 0)} judged · ${esc(st)}</span>
+      </div>
+      <div class="ap-lesson-metrics">
+        <b class="${(t.avg_sector_alpha || 0) >= 0 ? "pos" : "neg"}">${pct(t.avg_sector_alpha || 0)}</b>
+        <em>sector alpha</em>
+      </div>
+      <div class="ap-lesson-metrics">
+        <b>${Math.round(t.win_rate || 0)}%</b>
+        <em>worked</em>
+      </div>
+    </div>`;
+  }).join("");
+  const sectorRows = sectors.slice(0, 4).map((s) => `<div class="ap-sector-chip">
+    <strong>${esc(s.key || "market")}</strong>
+    <span>${esc((s.best_tactic || "unclear").replaceAll("_", " "))}</span>
+    <em class="${(s.avg_sector_alpha || 0) >= 0 ? "pos" : "neg"}">${pct(s.avg_sector_alpha || 0)} alpha</em>
+  </div>`).join("");
+  const themeRows = themes.slice(0, 4).map((t) => {
+    const names = (t.candidates || []).slice(0, 4).map((c) => c.ticker).filter(Boolean).join(", ");
+    const tested = t.tested_count ? `${t.tested_count} tested · ${pct(t.avg_sector_alpha || 0)} alpha · ${esc(t.stance || "testing")}` : "not tested yet";
+    return `<div class="ap-theme-scout">
+      <div><strong>${esc(t.name || t.key || "theme")}</strong><span>${esc(names || "building roster")} · ${tested}</span></div>
+      <b>${Math.round(t.score || 0)}</b>
+    </div>`;
+  }).join("");
+  const ruleRows = rules.slice(0, 4).map((r) => `<li>${esc(r)}</li>`).join("");
+  const banditRows = [...(bandit.top || []).slice(0, 2), ...(bandit.bottom || []).slice(0, 2)]
+    .map((a) => `<div class="ap-policy-arm ${a.avg_reward >= 0 ? "good" : "bad"}">
+      <strong>${esc(a.label || a.key || "context")}</strong>
+      <span>${esc((a.stance || "learning").replaceAll("_", " "))} · ${esc(a.count || 0)} judged · ${Math.round((a.confidence || 0) * 100)}% confidence</span>
+      <em>${(a.avg_reward || 0) >= 0 ? "+" : ""}${(a.avg_reward || 0).toFixed(1)} reward</em>
+    </div>`).join("");
+  const recentRows = recent.slice(0, 3).map((r) => `<div class="ap-review-mini ${esc(r.verdict || "")}">
+    <strong>${esc(r.ticker || "")} ${esc(r.window || "")}</strong>
+    <span>${esc(r.verdict || "reviewed")} · thesis ${esc(r.thesis_state || "unknown")}</span>
+    <em>${pct(r.sector_alpha_pct || 0)} sector alpha</em>
+  </div>`).join("");
+  const empty = !tactics.length && !sectors.length && !recent.length;
+  return `<section class="ap-lessons">
+    <div class="ap-sec-head">
+      <div><h3>Lessons</h3><p>What Autopilot has learned from judged review windows.</p></div>
+      <span>${empty ? "collecting evidence" : `${recent.length} recent reviews`}</span>
+    </div>
+    ${empty ? `<div class="ap-lessons-empty">No judged windows yet. As filled trades age into their review windows, this becomes the policy memory Autopilot uses before making new moves.</div>` : `
+      <div class="ap-lessons-grid">
+        <div class="ap-lesson-card wide">
+          <h4>Tactics</h4>
+          ${tacticRows || `<p class="muted">No tactic has enough judged reviews yet.</p>`}
+        </div>
+        <div class="ap-lesson-card">
+          <h4>Sector read</h4>
+          <div class="ap-sector-list">${sectorRows || `<p class="muted">Sector lessons need more judged trades.</p>`}</div>
+        </div>
+      </div>
+      <div class="ap-lessons-grid second">
+        <div class="ap-lesson-card">
+          <h4>Policy forming</h4>
+          <ul class="ap-rule-list">${ruleRows}</ul>
+          ${banditRows ? `<div class="ap-policy-list">${banditRows}</div>` : ""}
+        </div>
+        <div class="ap-lesson-card">
+          <h4>Discovered themes</h4>
+          ${themeRows || `<p class="muted">Theme Scout has not found a strong autonomous theme yet.</p>`}
+        </div>
+      </div>
+      <div class="ap-lesson-card ap-review-card">
+        <h4>Latest reviews</h4>
+        ${recentRows || `<p class="muted">No completed reviews yet.</p>`}
+      </div>`}
+  </section>`;
+}
+
 function dualLine(you, twin, w = 760, h = 180, pad = 12) {
   const norm = (s) => (s || []).map((p) => ({ t: new Date(p.at).getTime(), v: +p.value }))
     .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
@@ -462,10 +556,16 @@ function apHoldingsHTML(c) {
     <span class="ap-h-tk">${esc(h.ticker)}</span>
     <span class="ap-h-w">${(h.weight || 0).toFixed(0)}%</span>
     <span class="ap-h-v">${money0(h.market_value)}</span></div>`).join("") || `<p class="muted">No holdings.</p>`;
-  const apRows = (c.twin.positions || []).map((p) => `<div class="ap-hrow">
+  const apRows = (c.twin.positions || []).map((p) => {
+    const h = p.health || {};
+    const hk = (h.state || "none").toLowerCase();
+    return `<div class="ap-hrow ${h.label ? "has-health" : ""}">
     <span class="ap-h-tk">${esc(p.ticker)}${!yourTk.has(p.ticker) ? ` <span class="ap-tag">added</span>` : ""}</span>
     <span class="ap-h-w ${(p.return_pct || 0) >= 0 ? "pos" : "neg"}">${pct(p.return_pct)}</span>
-    <span class="ap-h-v">${money0(p.market_value)}</span></div>`).join("");
+    <span class="ap-h-v">${money0(p.market_value)}</span>
+    ${h.label ? `<span class="ap-health ${esc(hk)}" title="${esc(h.note || "")}">${esc(h.label)}</span>` : ""}
+    </div>`;
+  }).join("");
   const cashRow = `<div class="ap-hrow cash"><span class="ap-h-tk">Cash</span><span class="ap-h-w"></span><span class="ap-h-v">${money0(c.twin.cash)}</span></div>`;
   const added = [...apTk].filter((t) => !yourTk.has(t));
   const sold = [...yourTk].filter((t) => !apTk.has(t));
@@ -503,7 +603,11 @@ function apHistoryHTML(c) {
         : `~${money0(t.value || 0)} queued`;
     const grade = t.judgement ? ` <span class="ap-grade">judge ${esc(t.judgement.verdict)} ${t.judgement.score}</span>` : "";
     const tags = [t.tactic, t.horizon].filter(Boolean).map((x) => `<span class="ap-meta">${esc(x)}</span>`).join("");
+    const deps = (t.depends_on || []).length ? `<span class="ap-meta">depends: ${esc(t.depends_on.join(", "))}</span>` : "";
+    const step = t.plan_step ? `<span class="ap-step">step ${esc(t.plan_step)}</span>` : "";
+    const preflightTag = preflightBadge(t.preflight_note || "");
     const critic = t.critic_note ? `<p class="ap-critic">${esc(t.critic_note)}</p>` : "";
+    const preflight = t.preflight_note ? `<p class="ap-preflight">${esc(t.preflight_note)}</p>` : "";
     const review = t.review_note ? `<p class="ap-review">${esc(t.review_note)}</p>` : "";
     html += `<div class="ap-trade">
       <span class="ap-t-time" title="${esc(stamp)}">${esc(actTime(stamp))}</span>
@@ -511,13 +615,25 @@ function apHistoryHTML(c) {
       <span class="ap-t-tk">${esc(t.ticker)}</span>
       <span class="ap-t-detail">${esc(detail)}</span>
       <span class="ap-t-status ${esc(t.status)}">${esc(t.status)}</span>
-      ${tags ? `<div class="ap-t-tags">${tags}</div>` : ""}
+      ${(tags || deps || step || preflightTag) ? `<div class="ap-t-tags">${step}${tags}${deps}${preflightTag}</div>` : ""}
       ${critic}
+      ${preflight}
       ${t.reasoning ? `<p class="ap-t-why">${esc(t.reasoning)}${grade}</p>` : (grade ? `<p class="ap-t-why">${grade}</p>` : "")}
       ${review}
     </div>`;
   }
   return html + `</div>`;
+}
+
+function preflightBadge(note) {
+  const n = (note || "").toLowerCase();
+  if (!n) return "";
+  if (n.includes("resized")) return `<span class="ap-preflight-badge resized">resized: funding changed</span>`;
+  if (n.includes("thesis-break")) return `<span class="ap-preflight-badge canceled">canceled: thesis broke</span>`;
+  if (n.includes("not chasing")) return `<span class="ap-preflight-badge canceled">canceled: chased too far</span>`;
+  if (n.includes("gap-down")) return `<span class="ap-preflight-badge canceled">canceled: gap down</span>`;
+  if (n.includes("funding")) return `<span class="ap-preflight-badge canceled">canceled: funding missing</span>`;
+  return `<span class="ap-preflight-badge">preflight checked</span>`;
 }
 
 const _apRefresh = $("#apRefresh");
