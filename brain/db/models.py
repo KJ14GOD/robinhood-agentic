@@ -418,3 +418,44 @@ class TwinEquityRecord(Base):
     value: Mapped[float] = mapped_column(Float, default=0.0)            # cash + positions marked to market
     cash: Mapped[float] = mapped_column(Float, default=0.0)
     positions_value: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class TwinTradeReviewRecord(Base):
+    """One scheduled evaluation of a filled Twin trade at a specific horizon window (1d/1w/1m/3m/6m).
+
+    The mature self-review: a trade is graded at several windows, against BOTH SPY and its sector
+    ETF, and — crucially — with a thesis-state read so a long-term name that's merely down (but
+    whose thesis is intact) isn't called a failure. Early windows on long horizons are 'monitoring'
+    (judged=False): price is tracked and thesis-breaks are watched, but the trade isn't scored as
+    good/bad until a horizon-appropriate window matures. Additive table — create_all, no ALTER."""
+
+    __tablename__ = "twin_trade_reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_id: Mapped[int] = mapped_column(Integer, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True)
+    action: Mapped[str] = mapped_column(String(10), default="")
+    tactic: Mapped[str] = mapped_column(String(60), default="", index=True)
+    horizon: Mapped[str] = mapped_column(String(80), default="")
+    window: Mapped[str] = mapped_column(String(8), default="", index=True)   # 1d | 1w | 1m | 3m | 6m
+    judged: Mapped[bool] = mapped_column(Boolean, default=False)             # scored vs monitoring-only
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending | done
+    # anchors captured at fill
+    entry_price: Mapped[float] = mapped_column(Float, default=0.0)
+    bench_entry: Mapped[float] = mapped_column(Float, default=0.0)           # SPY at fill
+    sector_symbol: Mapped[str] = mapped_column(String(20), default="")       # the stock's sector ETF
+    sector_entry: Mapped[float] = mapped_column(Float, default=0.0)
+    # filled in at review time
+    price: Mapped[float] = mapped_column(Float, default=0.0)
+    bench_last: Mapped[float] = mapped_column(Float, default=0.0)
+    sector_last: Mapped[float] = mapped_column(Float, default=0.0)
+    return_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    spy_alpha_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    sector_alpha_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    drawdown_pct: Mapped[float] = mapped_column(Float, default=0.0)          # worst dip since entry
+    thesis_state: Mapped[str] = mapped_column(String(16), default="", index=True)  # active|weakening|broken|stronger
+    verdict: Mapped[str] = mapped_column(String(16), default="", index=True)  # monitoring|intact|worked|lagged|weak|failed|executed
+    note: Mapped[str] = mapped_column(Text, default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -9,14 +9,15 @@ The decision-making — what to trade and why — is a separate brain that queue
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .. import config, llm, research_state
 from ..data import market_clock
-from ..data.prices import ScreenRow, get_quote, get_quotes, get_signals_many, screen_universe
+from ..data.prices import (ScreenRow, get_chart, get_quote, get_quotes, get_signals,
+                           get_signals_many, screen_universe, sector_etf)
 from ..data.universe import screening_universe
 from ..db import repository as db_repo
-from ..models import TwinDecision
+from ..models import TwinDecision, TwinThesisReview
 from ..portfolio import get_portfolio
 
 _VALID_TACTICS = {
@@ -32,6 +33,9 @@ _VALID_TACTICS = {
     "liquidity_cleanup",
 }
 _MIN_ORDER_USD = 1.0
+_HYGIENE_TACTICS = {"rebalance", "risk_reduction", "liquidity_cleanup", "defensive_rotation"}
+_REVIEW_WINDOW_DAYS = {"1d": 1, "1w": 7, "1m": 30, "3m": 90, "6m": 180}
+_WINDOW_SPAN = {"1d": "5d", "1w": "1m", "1m": "3m", "3m": "6m", "6m": "1y"}
 
 
 def state() -> dict | None:
@@ -245,7 +249,188 @@ def execute_pending(force: bool = False, refresh: bool = True) -> list[dict]:
     db_repo.update_twin_cash(cash)
     if fills:
         snapshot_equity(refresh=False)
+        for f in fills:
+            _schedule_fill_reviews(f, bench_price)
     return fills
+
+
+# --------------------------------------------------------------------------- #
+# Mature self-review (Stage 3) — multi-window, sector-relative, thesis-aware
+# --------------------------------------------------------------------------- #
+def _sector_anchor(ticker: str, refresh: bool = False) -> tuple[str, float]:
+    """The stock's sector ETF symbol + its current price, for sector-relative alpha. Best-effort."""
+    try:
+        sym = sector_etf(get_signals(ticker, refresh=refresh).sector or "")
+        if not sym:
+            return ("", 0.0)
+        return (sym, float(get_quote(sym, refresh=refresh).price or 0.0))
+    except Exception:  # noqa: BLE001
+        return ("", 0.0)
+
+
+def _windows_for(horizon: str | None, tactic: str | None) -> list[tuple[str, int, bool]]:
+    """The evaluation windows to schedule for a trade, by horizon/tactic. (window, days, judged) —
+    judged=False windows are MONITORING ONLY (track price + watch for thesis-break), not scored."""
+    h, tac = f"{horizon or ''}".lower(), f"{tactic or ''}".lower()
+    if tac in _HYGIENE_TACTICS:
+        plan = [("1w", True)]   # hygiene: one quick check, scored as 'executed' not alpha-judged
+    elif tac == "long_term_compounder" or any(x in h for x in ("core", "long", "multi", "compound", "year")):
+        plan = [("1w", False), ("1m", False), ("3m", True), ("6m", True)]
+    elif "swing" in h:
+        plan = [("1d", False), ("1w", False), ("1m", True)]
+    elif tac == "catalyst_trade" or any(x in h for x in ("trade", "catalyst", "day")):
+        plan = [("1d", False), ("1w", True)]
+    else:
+        plan = [("1w", False), ("1m", True), ("3m", True)]
+    return [(w, _REVIEW_WINDOW_DAYS[w], judged) for (w, judged) in plan]
+
+
+def _schedule_fill_reviews(fill: dict, bench_price: float) -> None:
+    """At fill, schedule the trade's evaluation windows + capture the SPY and sector anchors."""
+    try:
+        if fill.get("action") not in ("buy", "add", "sell", "trim"):
+            return
+        sym, sec_price = _sector_anchor(fill["ticker"])
+        db_repo.schedule_twin_reviews(
+            trade_id=fill["id"], ticker=fill["ticker"], action=fill["action"],
+            tactic=fill.get("tactic") or "", horizon=fill.get("horizon") or "",
+            entry_price=float(fill.get("price") or 0.0), bench_entry=float(bench_price or 0.0),
+            sector_symbol=sym, sector_entry=sec_price,
+            windows=_windows_for(fill.get("horizon"), fill.get("tactic")))
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _drawdown_since(ticker: str, window: str, entry: float, refresh: bool = False) -> float:
+    """Worst close-to-entry dip over the window (negative %). Best-effort; 0 if no chart."""
+    if entry <= 0:
+        return 0.0
+    try:
+        chart = get_chart(ticker, _WINDOW_SPAN.get(window, "3m"), refresh=refresh)
+        closes = [p.close for p in (chart.points or []) if getattr(p, "close", 0)]
+        if not closes:
+            return 0.0
+        return (min(closes) - entry) / entry * 100.0
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _thesis_prompt(d, thesis, exit_rule, stock_pct, spy_pct, sec_pct, drawdown, events) -> str:
+    return f"""You are reviewing one of Autopilot's open paper trades to decide whether its THESIS still
+holds — independent of short-term price. A drawdown alone is NOT a thesis break: if the market and the
+stock's sector are down too and no invalidation fired, the thesis is still 'active'.
+
+TRADE: {d['action'].upper()} {d['ticker']} · tactic {d.get('tactic')} · horizon {d.get('horizon')} · window {d['window']}
+THESIS: {thesis}
+EXIT RULE (what would invalidate it): {exit_rule or '(none recorded)'}
+
+PRICE ACTION since entry: {d['ticker']} {stock_pct:+.1f}%, SPY {spy_pct:+.1f}%, sector ETF {sec_pct:+.1f}%, worst dip {drawdown:+.1f}%.
+
+RECENT NEWS / EVENTS:
+{events or '(nothing notable)'}
+
+Decide the thesis state (active / weakening / broken / stronger), whether the drawdown is normal for
+this horizon and sector, and one grounded sentence. Mark 'broken' ONLY if the exit rule clearly fired
+or the original reason is now wrong — never just because the price is down."""
+
+
+def _assess_thesis(d, ctx, stock_pct, spy_pct, sec_pct, drawdown) -> tuple[str, bool, str]:
+    tac = (d.get("tactic") or "").lower()
+    if d["window"] == "1d" or tac in _HYGIENE_TACTICS:
+        return ("active", True, "Monitoring window — price tracked, no thesis call yet.")
+    thesis = (ctx.get("thesis") or "").strip()
+    exit_rule = (ctx.get("exit_rule") or "").strip()
+    if not thesis or not config.TWIN_ENABLED:
+        return ("active", abs(stock_pct) <= max(8.0, abs(sec_pct) + 4), "No stored thesis to test.")
+    try:
+        r = llm.parse(_thesis_prompt(d, thesis, exit_rule, stock_pct, spy_pct, sec_pct, drawdown,
+                                     _events_block([d["ticker"]])),
+                      TwinThesisReview, max_tokens=600, effort="low")
+        return (r.state, r.drawdown_normal, r.reason)
+    except Exception:  # noqa: BLE001
+        return ("active", True, "Thesis check unavailable; treated as intact (no invalidation found).")
+
+
+def _grace_verdict(d, tac: str, state: str, dd_normal: bool, sector_alpha: float) -> str:
+    if tac in _HYGIENE_TACTICS:
+        return "executed"
+    if state == "broken":
+        return "failed"
+    if state == "weakening":
+        return "weak"
+    # thesis active/stronger: only SCORE at a judged window; earlier windows are intact-monitoring
+    if d.get("judged"):
+        return "worked" if sector_alpha > 0 else "lagged"
+    return "intact"
+
+
+def _review_note(d, ret, spy_alpha, sector_alpha, sec_sym, state, verdict, reason) -> str:
+    sec = f", vs {sec_sym} {sector_alpha:+.1f}%" if sec_sym else ""
+    return (f"{d['window']} {verdict}: {d['ticker']} {ret:+.1f}% (alpha vs SPY {spy_alpha:+.1f}%{sec}); "
+            f"thesis {state} — {reason}")
+
+
+def review_windows(refresh: bool = False) -> list[dict]:
+    """Mature self-review: grade each DUE window against SPY AND the sector ETF, read the thesis
+    state, and apply long-horizon grace so a normal drawdown on an intact thesis isn't called a
+    failure. Writes per-window results; aggregates feed policy memory. Best-effort."""
+    if not config.TWIN_ENABLED:
+        return []
+    due = db_repo.due_twin_reviews()
+    if not due:
+        return []
+    names = {d["ticker"] for d in due} | {d["sector_symbol"] for d in due if d.get("sector_symbol")}
+    qmap = _quote_map(list(names) + ["SPY"], refresh=refresh)
+    spy_last = qmap.get("SPY", 0.0)
+    ctx = {t["id"]: t for t in db_repo.recent_twin_trades(400)}
+    done: list[dict] = []
+    for d in due:
+        entry, last = float(d.get("entry_price") or 0.0), qmap.get(d["ticker"], 0.0)
+        if entry <= 0 or last <= 0:
+            continue
+        sign = -1.0 if d["action"] in ("sell", "trim") else 1.0
+        stock_pct = (last - entry) / entry * 100.0
+        ret = sign * stock_pct
+        spy_entry = float(d.get("bench_entry") or 0.0)
+        spy_pct = ((spy_last - spy_entry) / spy_entry * 100.0) if spy_entry > 0 and spy_last > 0 else 0.0
+        spy_alpha = sign * (stock_pct - spy_pct) if spy_entry > 0 and spy_last > 0 else ret
+        sec_sym, sec_entry = d.get("sector_symbol") or "", float(d.get("sector_entry") or 0.0)
+        sec_last = qmap.get(sec_sym, 0.0)
+        sec_pct = ((sec_last - sec_entry) / sec_entry * 100.0) if sec_entry > 0 and sec_last > 0 else 0.0
+        sector_alpha = sign * (stock_pct - sec_pct) if sec_entry > 0 and sec_last > 0 else 0.0
+        drawdown = _drawdown_since(d["ticker"], d["window"], entry, refresh=refresh)
+        state, dd_normal, reason = _assess_thesis(d, ctx.get(d["trade_id"], {}), stock_pct, spy_pct, sec_pct, drawdown)
+        verdict = _grace_verdict(d, (d.get("tactic") or "").lower(), state, dd_normal, sector_alpha)
+        note = _review_note(d, ret, spy_alpha, sector_alpha, sec_sym, state, verdict, reason)
+        db_repo.save_twin_review_window(
+            d["id"], price=last, bench_last=spy_last, sector_last=sec_last, return_pct=ret,
+            spy_alpha_pct=spy_alpha, sector_alpha_pct=sector_alpha, drawdown_pct=drawdown,
+            thesis_state=state, verdict=verdict, note=note)
+        done.append({**d, "return_pct": ret, "spy_alpha": spy_alpha, "sector_alpha": sector_alpha,
+                     "thesis_state": state, "verdict": verdict, "note": note})
+    return done
+
+
+def position_health(ticker: str) -> dict:
+    """Held-position health read from its latest review window — separates 'normal drawdown, hold'
+    from 'thesis weakening/broken'. Empty dict if no review yet."""
+    r = db_repo.latest_twin_review(ticker)
+    if not r:
+        return {}
+    state, sec_a, ret = r.get("thesis_state") or "", r.get("sector_alpha_pct") or 0.0, r.get("return_pct") or 0.0
+    if state == "broken":
+        label = "thesis broken — review"
+    elif state == "weakening":
+        label = "thesis weakening — watch"
+    elif state == "stronger":
+        label = "thesis strengthening"
+    elif ret < 0 and sec_a >= -2:
+        label = "normal drawdown — hold"
+    else:
+        label = "thesis intact"
+    return {"state": state, "label": label, "window": r.get("window"),
+            "return_pct": ret, "sector_alpha_pct": sec_a,
+            "sector_symbol": r.get("sector_symbol") or "", "note": r.get("note") or ""}
 
 
 def compare(real_pf=None, refresh: bool = False) -> dict:
@@ -438,13 +623,27 @@ def _policy_memory() -> str:
         return "No reviewed Autopilot trades yet. Be conservative, explicit, and gather evidence."
     lines = []
     for tactic, st in sorted(stats.items(), key=lambda kv: kv[1]["count"], reverse=True)[:8]:
-        instruction = "lean in modestly" if st["avg_alpha"] > 1 and st["win_rate"] >= 50 else "size down or demand better evidence"
-        lines.append(f"- {tactic}: {st['count']} reviewed, avg alpha {st['avg_alpha']:+.1f}%, "
+        sec = st.get("avg_sector_alpha")
+        br = st.get("break_rate")
+        extra = (f", sector alpha {sec:+.1f}%" if sec is not None else "")
+        extra += (f", thesis-break {br:.0f}%" if br is not None else "")
+        ok = st["avg_alpha"] > 1 and st["win_rate"] >= 50 and (br is None or br < 34)
+        instruction = "lean in modestly" if ok else "size down or demand better evidence"
+        lines.append(f"- {tactic}: {st['count']} reviewed, avg alpha {st['avg_alpha']:+.1f}%{extra}, "
                      f"win rate {st['win_rate']:.0f}% — {instruction}.")
     return "\n".join(lines)
 
 
 def _policy_stats() -> dict[str, dict]:
+    """Per-tactic learned stats. Prefers the mature multi-window reviews (sector-relative alpha +
+    thesis-break rate); falls back to the legacy single-window trade reviews when none exist yet."""
+    wins = db_repo.twin_window_policy()
+    if wins:
+        return {w["tactic"]: {
+            "count": w["count"],
+            "avg_alpha": w["avg_sector_alpha"] if w["avg_sector_alpha"] else w["avg_spy_alpha"],
+            "avg_spy_alpha": w["avg_spy_alpha"], "avg_sector_alpha": w["avg_sector_alpha"],
+            "win_rate": w["win_rate"], "break_rate": w["break_rate"]} for w in wins}
     rows = [r for r in db_repo.recent_twin_trades(500)
             if r.get("status") == "filled" and r.get("review_status") == "reviewed"]
     groups: dict[str, list[dict]] = {}
@@ -455,12 +654,8 @@ def _policy_stats() -> dict[str, dict]:
         alphas = [float(r.get("review_alpha_pct") or 0.0) for r in rs]
         if not alphas:
             continue
-        wins = sum(1 for a in alphas if a > 0)
-        out[tactic] = {
-            "count": len(alphas),
-            "avg_alpha": sum(alphas) / len(alphas),
-            "win_rate": wins / len(alphas) * 100.0,
-        }
+        out[tactic] = {"count": len(alphas), "avg_alpha": sum(alphas) / len(alphas),
+                       "win_rate": sum(1 for a in alphas if a > 0) / len(alphas) * 100.0}
     return out
 
 

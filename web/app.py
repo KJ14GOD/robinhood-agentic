@@ -342,6 +342,13 @@ def twin_decide():
     return brain.twin_decide_now()
 
 
+@app.post("/api/twin/reset")
+def twin_reset():
+    """Wipe Autopilot (fund + positions + trades + equity) so it can be re-cloned fresh."""
+    brain.twin_reset()
+    return {"started": False}
+
+
 @app.get("/api/evals")
 def evals_overview(limit: int = Query(30, ge=1, le=100), kind: str | None = None):
     """The eval worklist + the emerging suite: reviewable traces (with any label) plus the
@@ -485,6 +492,7 @@ async def _brain_loop() -> None:
         # queued orders during market hours, then record an equity point so the race line stays live.
         try:
             await asyncio.to_thread(brain.twin_review_due)
+            await asyncio.to_thread(brain.twin_review_windows)
             await asyncio.to_thread(brain.run_twin_decision)
             await asyncio.to_thread(brain.twin_execute_pending)
             await asyncio.to_thread(brain.twin_snapshot)

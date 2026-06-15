@@ -31,6 +31,7 @@ from .models import (
     TwinFundRecord,
     TwinPositionRecord,
     TwinTradeRecord,
+    TwinTradeReviewRecord,
     WatchlistItemRecord,
 )
 from .session import db_session, init_db
@@ -1430,6 +1431,148 @@ def save_twin_review(trade_id: int, last_price: float, bench_last_price: float,
         return
 
 
+def schedule_twin_reviews(trade_id: int, ticker: str, action: str, tactic: str, horizon: str,
+                          entry_price: float, bench_entry: float, sector_symbol: str,
+                          sector_entry: float, windows: list) -> None:
+    """Queue the horizon-appropriate evaluation windows for a just-filled trade.
+    `windows` is a list of (window, days, judged)."""
+    if not _ensure_ready() or not windows:
+        return
+    try:
+        now = datetime.now(timezone.utc)
+        with db_session() as session:
+            for window, days, judged in windows:
+                session.add(TwinTradeReviewRecord(
+                    trade_id=trade_id, ticker=ticker.upper(), action=action, tactic=tactic or "",
+                    horizon=horizon or "", window=window, judged=bool(judged),
+                    due_at=now + timedelta(days=int(days)), status="pending",
+                    entry_price=entry_price, bench_entry=bench_entry,
+                    sector_symbol=sector_symbol or "", sector_entry=sector_entry, created_at=now))
+    except Exception:
+        return
+
+
+def due_twin_reviews(limit: int = 40) -> list[dict]:
+    """Pending review windows whose due date has passed."""
+    if not _ensure_ready():
+        return []
+    try:
+        now = datetime.now(timezone.utc)
+        with db_session() as session:
+            rows = session.execute(
+                select(TwinTradeReviewRecord)
+                .where(TwinTradeReviewRecord.status == "pending")
+                .where(TwinTradeReviewRecord.due_at <= now)
+                .order_by(TwinTradeReviewRecord.due_at).limit(limit)).scalars().all()
+            return [{"id": r.id, "trade_id": r.trade_id, "ticker": r.ticker, "action": r.action,
+                     "tactic": r.tactic, "horizon": r.horizon, "window": r.window, "judged": r.judged,
+                     "entry_price": r.entry_price, "bench_entry": r.bench_entry,
+                     "sector_symbol": r.sector_symbol, "sector_entry": r.sector_entry} for r in rows]
+    except Exception:
+        return []
+
+
+def save_twin_review_window(review_id: int, price: float, bench_last: float, sector_last: float,
+                            return_pct: float, spy_alpha_pct: float, sector_alpha_pct: float,
+                            drawdown_pct: float, thesis_state: str, verdict: str, note: str) -> None:
+    if not _ensure_ready():
+        return
+    try:
+        with db_session() as session:
+            r = session.get(TwinTradeReviewRecord, review_id)
+            if not r:
+                return
+            r.price = price
+            r.bench_last = bench_last
+            r.sector_last = sector_last
+            r.return_pct = return_pct
+            r.spy_alpha_pct = spy_alpha_pct
+            r.sector_alpha_pct = sector_alpha_pct
+            r.drawdown_pct = drawdown_pct
+            r.thesis_state = thesis_state or ""
+            r.verdict = verdict or ""
+            r.note = (note or "")[:4000]
+            r.status = "done"
+            r.reviewed_at = datetime.now(timezone.utc)
+    except Exception:
+        return
+
+
+def twin_reviews_for_trades(trade_ids: list[int]) -> dict:
+    """Review windows per trade id (newest-window last) — for the History detail."""
+    if not _ensure_ready() or not trade_ids:
+        return {}
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(TwinTradeReviewRecord)
+                .where(TwinTradeReviewRecord.trade_id.in_(list(trade_ids)))
+                .order_by(TwinTradeReviewRecord.trade_id, TwinTradeReviewRecord.due_at)).scalars().all()
+        out: dict = {}
+        for r in rows:
+            out.setdefault(r.trade_id, []).append({
+                "window": r.window, "judged": r.judged, "status": r.status,
+                "return_pct": r.return_pct, "spy_alpha_pct": r.spy_alpha_pct,
+                "sector_alpha_pct": r.sector_alpha_pct, "drawdown_pct": r.drawdown_pct,
+                "thesis_state": r.thesis_state, "verdict": r.verdict, "note": r.note,
+                "sector_symbol": r.sector_symbol,
+                "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else ""})
+        return out
+    except Exception:
+        return {}
+
+
+def twin_window_policy() -> list[dict]:
+    """Done, JUDGED review windows aggregated per tactic — the mature policy memory."""
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(TwinTradeReviewRecord)
+                .where(TwinTradeReviewRecord.status == "done")
+                .where(TwinTradeReviewRecord.judged.is_(True))).scalars().all()
+        groups: dict = {}
+        for r in rows:
+            groups.setdefault(r.tactic or r.action or "trade", []).append(r)
+        out = []
+        for tactic, rs in groups.items():
+            n = len(rs)
+            if not n:
+                continue
+            out.append({
+                "tactic": tactic, "count": n,
+                "avg_spy_alpha": sum(x.spy_alpha_pct for x in rs) / n,
+                "avg_sector_alpha": sum(x.sector_alpha_pct for x in rs) / n,
+                "win_rate": sum(1 for x in rs if x.verdict == "worked") / n * 100.0,
+                "break_rate": sum(1 for x in rs if x.thesis_state == "broken") / n * 100.0,
+            })
+        return out
+    except Exception:
+        return []
+
+
+def latest_twin_review(ticker: str) -> dict | None:
+    """Most recent done review window for a ticker — feeds the held-position health read."""
+    if not _ensure_ready():
+        return None
+    try:
+        with db_session() as session:
+            r = session.execute(
+                select(TwinTradeReviewRecord)
+                .where(TwinTradeReviewRecord.ticker == ticker.upper())
+                .where(TwinTradeReviewRecord.status == "done")
+                .order_by(desc(TwinTradeReviewRecord.reviewed_at)).limit(1)).scalars().first()
+            if not r:
+                return None
+            return {"window": r.window, "return_pct": r.return_pct,
+                    "sector_alpha_pct": r.sector_alpha_pct, "drawdown_pct": r.drawdown_pct,
+                    "thesis_state": r.thesis_state, "verdict": r.verdict, "note": r.note,
+                    "sector_symbol": r.sector_symbol}
+    except Exception:
+        return None
+
+
 def add_twin_equity_point(value: float, cash: float, positions_value: float) -> None:
     if not _ensure_ready():
         return
@@ -1484,7 +1627,8 @@ def reset_twin() -> None:
         return
     try:
         with db_session() as session:
-            for model in (TwinEquityRecord, TwinTradeRecord, TwinPositionRecord, TwinFundRecord):
+            for model in (TwinTradeReviewRecord, TwinEquityRecord, TwinTradeRecord,
+                          TwinPositionRecord, TwinFundRecord):
                 session.execute(delete(model))
     except Exception:
         return

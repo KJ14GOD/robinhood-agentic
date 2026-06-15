@@ -699,6 +699,12 @@ def twin_review_due() -> list[dict]:
     return twin.review_due_trades() if twin.is_running() else []
 
 
+def twin_review_windows() -> list[dict]:
+    """Mature self-review: grade due evaluation windows vs SPY + sector, read the thesis state,
+    and apply long-horizon grace. Feeds the richer per-tactic policy memory."""
+    return twin.review_windows() if twin.is_running() else []
+
+
 def run_twin_decision() -> bool:
     """Gated entry for the autonomous decision cycle (cost control on the LLM think — the Twin sets
     its own trade count, we just don't re-think more than every TWIN_DECIDE_HOURS). Emits an

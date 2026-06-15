@@ -339,8 +339,20 @@ function apControlsHTML(c) {
   return `<div class="ap-controls">
     <span class="ap-cadence"><strong>${esc(session)}</strong> · ${esc(queued)} · thinks every few hours, fills only during market hours.</span>
     <button class="ap-cycle" onclick="runAutopilotCycle(this)">Run a cycle now</button>
+    <button class="ap-reset" onclick="resetAutopilot(this)">Reset</button>
   </div>`;
 }
+
+async function resetAutopilot(btn) {
+  if (!confirm("Reset Autopilot? This wipes its fund, positions, trades, and history so you can start fresh from your current book. Your real account is untouched.")) return;
+  busy(btn, true);
+  try {
+    AUTOPILOT = await api("twin/reset", {});
+    toast("Autopilot reset — start it again to re-clone fresh");
+    renderAutopilot();
+  } catch (e) { toast("Could not reset"); busy(btn, false); }
+}
+window.resetAutopilot = resetAutopilot;
 
 async function runAutopilotCycle(btn) {
   busy(btn, true);

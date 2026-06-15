@@ -18,7 +18,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
 from sqlalchemy import select  # noqa: E402
 
 from brain.db import repository as repo  # noqa: E402
-from brain.db.models import TwinTradeRecord  # noqa: E402
+from brain.db.models import TwinTradeRecord, TwinTradeReviewRecord  # noqa: E402
 from brain.engines import twin  # noqa: E402
 from brain.models import Holding, Portfolio, RiskProfile, TwinDecision, TwinMove  # noqa: E402
 
@@ -291,6 +291,62 @@ class TwinTests(unittest.TestCase):
         twin.inception(real_pf=self.real)
         self._decide_with(TwinDecision(summary="Nothing worth a trade.", moves=[]))
         self.assertEqual(repo.pending_twin_trades(), [])
+
+    # --- mature multi-window, thesis-aware self-review ---
+    def test_windows_for_horizon(self):
+        long_w = {w: j for w, _, j in twin._windows_for("multi-year core", "long_term_compounder")}
+        self.assertTrue(long_w.get("3m"))           # 3m is a JUDGED window for a long-term hold
+        self.assertFalse(long_w.get("1w", True))    # 1w is monitoring-only (grace)
+        hygiene = [w for w, _, _ in twin._windows_for("core", "rebalance")]
+        self.assertEqual(hygiene, ["1w"])           # hygiene tactic: one quick check
+
+    def _backdate_due(self):
+        with repo.db_session() as s:
+            for r in s.execute(select(TwinTradeReviewRecord)).scalars().all():
+                r.due_at = datetime.now(timezone.utc) - timedelta(days=1)
+
+    def _review_with(self, state, dd_normal, reason, drawdown=-10.0):
+        a, dd = twin._assess_thesis, twin._drawdown_since
+        twin._assess_thesis = lambda *args, **k: (state, dd_normal, reason)
+        twin._drawdown_since = lambda *args, **k: drawdown
+        try:
+            return twin.review_windows(refresh=True)
+        finally:
+            twin._assess_thesis, twin._drawdown_since = a, dd
+
+    def test_review_grace_intact_on_normal_dip(self):
+        # Long-term hold, down 8%, but SPY/sector down too and thesis active → NOT a failure.
+        twin.inception(real_pf=self.real)
+        repo.schedule_twin_reviews(1, "NVDA", "buy", "long_term_compounder", "multi-year",
+                                   entry_price=100.0, bench_entry=100.0, sector_symbol="SMH",
+                                   sector_entry=100.0, windows=[("1w", 7, False)])
+        self._backdate_due()
+        QUOTES.update({"NVDA": 92.0, "SPY": 96.0, "SMH": 93.0})
+        done = self._review_with("active", True, "no invalidation found")
+        self.assertEqual(len(done), 1)
+        self.assertEqual(done[0]["verdict"], "intact")    # monitoring window + active thesis
+        self.assertNotEqual(done[0]["verdict"], "failed")
+
+    def test_review_failed_on_thesis_break(self):
+        twin.inception(real_pf=self.real)
+        repo.schedule_twin_reviews(1, "NVDA", "buy", "long_term_compounder", "multi-year",
+                                   entry_price=100.0, bench_entry=100.0, sector_symbol="SMH",
+                                   sector_entry=100.0, windows=[("3m", 90, True)])
+        self._backdate_due()
+        QUOTES.update({"NVDA": 92.0, "SPY": 100.0, "SMH": 100.0})
+        done = self._review_with("broken", False, "guidance cut in the core segment")
+        self.assertEqual(done[0]["verdict"], "failed")    # thesis broke → real failure
+
+    def test_review_worked_at_judged_window_beats_sector(self):
+        twin.inception(real_pf=self.real)
+        repo.schedule_twin_reviews(1, "NVDA", "buy", "momentum_continuation", "swing",
+                                   entry_price=100.0, bench_entry=100.0, sector_symbol="SMH",
+                                   sector_entry=100.0, windows=[("1m", 30, True)])
+        self._backdate_due()
+        QUOTES.update({"NVDA": 110.0, "SPY": 102.0, "SMH": 104.0})   # +10 vs sector +4 → sector alpha +6
+        done = self._review_with("active", True, "thesis on track")
+        self.assertEqual(done[0]["verdict"], "worked")
+        self.assertAlmostEqual(done[0]["sector_alpha"], 6.0, places=1)
 
 
 if __name__ == "__main__":

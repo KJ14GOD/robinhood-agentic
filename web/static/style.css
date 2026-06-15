@@ -707,6 +707,8 @@ table.grid{width:100%;border-collapse:collapse;font-size:14px}
 .ap-cadence strong{color:var(--muted);font-weight:650}
 .ap-cycle{font:inherit;font-size:12.5px;font-weight:560;border:1px solid var(--line2);background:var(--card);color:var(--txt);border-radius:8px;padding:7px 14px;cursor:pointer}
 .ap-cycle:hover{border-color:var(--brain);color:var(--brain)}
+.ap-reset{font:inherit;font-size:12.5px;border:1px solid var(--line2);background:var(--card);color:var(--faint);border-radius:8px;padding:7px 12px;cursor:pointer;margin-left:8px}
+.ap-reset:hover{border-color:var(--red);color:var(--red)}
 .ap-chart{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;background:var(--card);margin-bottom:16px}
 .ap-chart svg{width:100%;height:180px;display:block}
 .ap-chart-empty,.ap-hist-empty{color:var(--faint);font-style:italic;font-size:13.5px;padding:14px 0}

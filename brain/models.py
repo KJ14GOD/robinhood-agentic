@@ -587,3 +587,17 @@ class TwinDecision(BaseModel):
     """Autopilot's output for one decision cycle — a plain-language read plus the moves (maybe none)."""
     summary: str = Field(description="One line: what you're doing this cycle and why. 'Holding — nothing worth a trade' is valid.")
     moves: list[TwinMove] = Field(default_factory=list, description="The trades to make now; empty if standing pat.")
+
+
+class TwinThesisReview(BaseModel):
+    """The mature self-review's read on whether a trade's THESIS still holds — separate from price.
+    The whole point: a long-term name that's merely down (market/sector down too, no invalidation
+    fired) is 'active', not a failure. Only mark 'broken'/'weakening' on real thesis damage."""
+    state: Literal["active", "weakening", "broken", "stronger"] = Field(
+        description="'broken' only if the exit_rule clearly fired / the original reason is now wrong; "
+                    "'weakening' if real evidence is against it; 'stronger' if the case improved; "
+                    "'active' if the thesis still holds (a drawdown alone is NOT weakening).")
+    drawdown_normal: bool = Field(
+        description="True if the price dip is normal for this horizon/sector (e.g. the sector fell too); "
+                    "False if it's an abnormal, thesis-relevant decline.")
+    reason: str = Field(description="ONE grounded sentence citing the specific evidence (or its absence).")
