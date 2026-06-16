@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import json
@@ -32,6 +32,62 @@ logger = logging.getLogger("brain.refresh")
 # serves stale snapshots with no error. So we track when it last succeeded
 # and surface a "stale" flag the dashboard turns into a visible banner.
 _REFRESH = {"last_ok": None, "last_error": None, "started": None}
+_BRAIN = {
+    "started": None,
+    "cycle_started": None,
+    "last_seen": None,
+    "last_ok": None,
+    "last_error": None,
+    "current_step": None,
+    "current_step_started": None,
+    "cycle_count": 0,
+    "steps": {},
+}
+
+# Hard ceilings per brain step. The loop is sequential, so without deadlines one stalled
+# network/LLM call freezes every step below it. These budgets are intentionally not one-size-fits-all:
+# deterministic scans stay tight, while agentic research and Autopilot get enough room to finish.
+_DEFAULT_STEP_TIMEOUT_SECONDS = 180
+_STEP_TIMEOUTS_SECONDS = {
+    "sentiment": 60,
+    "catalysts": 60,
+    "memory": 420,
+    "missions": 300,
+    "autoresearch": 900,
+    "structural_risk": 300,
+    "mandate_review": 300,
+    "mandate_drift": 300,
+    "theme_scout": 240,
+    "strategy_discovery": 240,
+    "twin_review": 180,
+    "twin_decision": 420,
+    "twin_fill": 180,
+    "twin_snapshot": 180,
+    "judge": 360,
+    "feed": 240,
+}
+
+# The canonical ordered brain pipeline. Lifted to module scope so the timeline UI can show all
+# steps (with labels, in order) even before they have run this cycle — pending/running/done/failed.
+_BRAIN_STEPS = [
+    ("sentiment", brain.ingest_sentiment, "Sentiment ingest"),
+    ("catalysts", brain.ingest_catalysts, "Catalyst radar"),
+    ("memory", brain.revisit_memory, "Living memory re-judge"),
+    ("missions", brain.run_due_missions, "Strategy missions"),
+    ("autoresearch", brain.run_autoresearch, "Autonomous deep research"),
+    ("structural_risk", brain.run_structural_risk, "Structural risk"),
+    ("mandate_review", brain.run_mandate_review, "Mandate review"),
+    ("mandate_drift", brain.run_mandate_drift, "Mandate drift check"),
+    ("theme_scout", brain.run_theme_scout, "Theme scout"),
+    ("strategy_discovery", brain.run_strategy_discovery, "Strategy discovery"),
+    ("twin_review", brain.twin_review_windows, "Autopilot review windows"),
+    ("twin_decision", brain.run_twin_decision, "Autopilot decision"),
+    ("twin_fill", brain.twin_execute_pending, "Autopilot fill orders"),
+    ("twin_snapshot", brain.twin_snapshot, "Autopilot equity snapshot"),
+    ("judge", brain.judge_recent_traces, "Self-grading sweep"),
+    ("feed", brain.prewarm_feed, "Feed pre-warm"),
+]
+_BRAIN_STEP_LABELS = {key: label for key, _fn, label in _BRAIN_STEPS}
 
 
 def _refresh_health() -> dict:
@@ -54,6 +110,218 @@ def _refresh_health() -> dict:
     if _REFRESH["last_error"]:
         msg += f" ({_REFRESH['last_error']})"
     return {"stale": True, "message": msg}
+
+
+def _iso_ts(ts: float | None) -> str:
+    if not ts:
+        return ""
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _step_summary(result) -> str:
+    """A short, human description of what a step actually did — shown when you open
+    a timeline row. Names the tickers when the step returns rows so 'updated' becomes
+    'AAPL, NVDA re-judged' etc."""
+    if isinstance(result, bool):
+        return "ran" if result else "skipped (gated / nothing to do)"
+    if isinstance(result, list):
+        n = len(result)
+        if not n:
+            return "ran — no items this cycle"
+        tickers = [str(r.get("ticker")) for r in result
+                   if isinstance(r, dict) and r.get("ticker")]
+        if tickers:
+            shown = ", ".join(tickers[:6])
+            return f"{n} item{'s' if n != 1 else ''}: {shown}" + (" …" if n > 6 else "")
+        return f"{n} item{'s' if n != 1 else ''}"
+    if isinstance(result, dict):
+        return "updated"
+    if result is None:
+        return "no-op"
+    return "ok"
+
+
+def _mark_brain_step(key: str, ok: bool, result=None, error: str = "") -> None:
+    now = time.time()
+    started = _BRAIN.get("current_step_started") or now
+    _BRAIN["last_seen"] = now
+    _BRAIN["current_step"] = None
+    _BRAIN["current_step_started"] = None
+    _BRAIN["steps"][key] = {
+        "at": now,
+        "started": started,
+        "duration": round(now - started, 2),
+        "ok": ok,
+        "label": _BRAIN_STEP_LABELS.get(key, key.replace("_", " ")),
+        "result": _step_summary(result) if ok else "failed",
+        "error": error[:240],
+    }
+
+
+async def _run_brain_step(key: str, fn):
+    timeout = _STEP_TIMEOUTS_SECONDS.get(key, _DEFAULT_STEP_TIMEOUT_SECONDS)
+    try:
+        _BRAIN["current_step"] = key
+        _BRAIN["current_step_started"] = time.time()
+        _BRAIN["last_seen"] = _BRAIN["current_step_started"]
+        result = await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
+        _mark_brain_step(key, True, result=result)
+        return result
+    except (asyncio.TimeoutError, TimeoutError):
+        _mark_brain_step(
+            key, False,
+            error=f"timed out after {timeout}s — step exceeded its deadline, "
+                  "loop moved on (likely a stalled network/LLM call)")
+        raise
+    except Exception as e:  # noqa: BLE001
+        _mark_brain_step(key, False, error=str(e))
+        raise
+
+
+def _worker_health() -> dict:
+    if config.AUTO_REFRESH_SECONDS <= 0:
+        return {"status": "disabled", "label": "worker disabled", "stale": False}
+    started = _BRAIN["started"]
+    last_ok = _BRAIN["last_ok"]
+    last_seen = _BRAIN.get("last_seen")
+    current_step = _BRAIN.get("current_step")
+    current_step_started = _BRAIN.get("current_step_started")
+    ref = last_seen or last_ok or started
+    if not ref:
+        return {"status": "starting", "label": "starting", "stale": False}
+    age = time.time() - ref
+    stale_after = max(config.BRAIN_LOOP_SECONDS * 3, config.BRAIN_LOOP_SECONDS + 300)
+    if not last_ok and age < stale_after:
+        return {"status": "starting", "label": "starting", "stale": False,
+                "started_at": _iso_ts(started)}
+    current_age = time.time() - current_step_started if current_step_started else 0
+    stale = age > stale_after
+    working = bool(current_step and current_age <= stale_after)
+    return {
+        "status": "working" if working else ("stale" if stale else "running"),
+        "label": f"working: {str(current_step).replace('_', ' ')}" if working
+                 else ("needs attention" if stale else "running"),
+        "stale": stale and not working,
+        "started_at": _iso_ts(started),
+        "cycle_started_at": _iso_ts(_BRAIN["cycle_started"]),
+        "last_ok_at": _iso_ts(last_ok),
+        "last_seen_at": _iso_ts(last_seen),
+        "current_step": current_step or "",
+        "current_step_started_at": _iso_ts(current_step_started),
+        "last_error": _BRAIN["last_error"] or "",
+        "cycle_count": _BRAIN["cycle_count"],
+    }
+
+
+def _brain_timeline() -> list[dict]:
+    """Every brain step in pipeline order with its live state this cycle:
+    ok / failed / running / pending. This is the scend.ai-style timeline the UI
+    renders — click a row to see what that step did (or why it failed)."""
+    cycle_started = _BRAIN.get("cycle_started") or 0
+    current = _BRAIN.get("current_step")
+    cur_started = _BRAIN.get("current_step_started")
+    rows: list[dict] = []
+    for key, _fn, label in _BRAIN_STEPS:
+        rec = _BRAIN["steps"].get(key)
+        ran_this_cycle = bool(rec and (rec.get("at") or 0) >= cycle_started)
+        if key == current:
+            status = "running"
+        elif ran_this_cycle:
+            status = "ok" if rec.get("ok") else "failed"
+        else:
+            status = "pending"
+        row = {"key": key, "label": label, "status": status}
+        if rec:
+            row.update({
+                "at": _iso_ts(rec.get("at")),
+                "started_at": _iso_ts(rec.get("started")),
+                "duration": rec.get("duration"),
+                "result": rec.get("result", ""),
+                "error": rec.get("error", ""),
+                "from_prev_cycle": not ran_this_cycle and status != "running",
+            })
+        if status == "running" and cur_started:
+            row["started_at"] = _iso_ts(cur_started)
+            row["elapsed"] = round(time.time() - cur_started, 1)
+        rows.append(row)
+    return rows
+
+
+def _autopilot_ops(payload: dict) -> dict:
+    """Operational status for the local Autopilot worker. This is deliberately process-scoped:
+    it tells the UI whether THIS running uvicorn process is actually ticking."""
+    now = datetime.now(timezone.utc)
+    trace = payload.get("decision_trace") or {}
+    last_decision = _parse_iso(trace.get("created_at"))
+    next_due = (last_decision + timedelta(hours=config.TWIN_DECIDE_HOURS)) if last_decision else now
+    pending = payload.get("pending") or {}
+    pending_count = int(pending.get("count") or 0)
+    trades = payload.get("trades") or []
+
+    if pending_count:
+        decision_status = "waiting for fill"
+        decision_detail = "orders are already queued; new decisions wait until that batch resolves"
+    elif not last_decision:
+        decision_status = "due now"
+        decision_detail = "no Autopilot decision has been recorded yet"
+    elif now >= next_due:
+        decision_status = "due now"
+        decision_detail = "cadence has elapsed; next brain tick can think again"
+    else:
+        decision_status = "scheduled"
+        decision_detail = "inside the decision cooldown"
+
+    if not trades:
+        if pending_count:
+            history_note = "Orders are queued but not filled yet, so History will show pending moves once the queue is written and filled/canceled states update."
+        elif last_decision:
+            history_note = "No moves yet because the latest Autopilot decision held the cloned book or queued nothing. After-hours only blocks fills, not History rows."
+        else:
+            history_note = "No moves yet because Autopilot has not made a recorded trade decision since this twin was started."
+    else:
+        history_note = ""
+
+    steps = []
+    for key, row in sorted((_BRAIN.get("steps") or {}).items(),
+                           key=lambda kv: kv[1].get("at") or 0, reverse=True)[:8]:
+        steps.append({"key": key, "at": _iso_ts(row.get("at")), "ok": row.get("ok", False),
+                      "result": row.get("result", ""), "error": row.get("error", "")})
+
+    worker = _worker_health()
+    catchup = "ready"
+    if worker.get("status") == "starting":
+        catchup = "startup catch-up is beginning"
+    elif decision_status == "due now" and not pending_count:
+        catchup = "Autopilot is due; the next brain tick will attempt a decision"
+    elif pending_count:
+        catchup = "catch-up paused because an order batch is already queued"
+
+    return {
+        "worker": worker,
+        "live_data": _refresh_health(),
+        "decision": {
+            "status": decision_status,
+            "detail": decision_detail,
+            "cadence_hours": config.TWIN_DECIDE_HOURS,
+            "last_decision_at": last_decision.isoformat() if last_decision else "",
+            "next_due_at": next_due.isoformat() if next_due else "",
+            "due_now": now >= next_due and not pending_count,
+        },
+        "startup": {"server_started_at": _iso_ts(_BRAIN["started"]), "catchup": catchup},
+        "history_note": history_note,
+        "steps": steps,
+        "timeline": _brain_timeline(),
+    }
 
 
 # ----- request bodies ----- #
@@ -327,7 +595,19 @@ def mandate_review():
 @app.get("/api/twin")
 def twin_get(refresh: bool = False):
     """You vs the Twin since inception (or {started:false} if it hasn't been launched yet)."""
-    return brain.twin_compare(refresh=refresh)
+    payload = brain.twin_compare(refresh=refresh)
+    if isinstance(payload, dict) and payload.get("started"):
+        payload["ops"] = _autopilot_ops(payload)
+    return payload
+
+
+@app.get("/api/twin/ops")
+def twin_ops():
+    """Raw local worker diagnostics for Autopilot/background-loop debugging."""
+    payload = brain.twin_compare(refresh=False)
+    if isinstance(payload, dict) and payload.get("started"):
+        return _autopilot_ops(payload)
+    return {"worker": _worker_health(), "live_data": _refresh_health(), "started": False}
 
 
 @app.post("/api/twin/start")
@@ -339,7 +619,10 @@ def twin_start():
 @app.post("/api/twin/decide")
 def twin_decide():
     """Force an Autopilot decision cycle now (the tab's 'run a cycle' button)."""
-    return brain.twin_decide_now()
+    payload = brain.twin_decide_now()
+    if isinstance(payload, dict) and payload.get("started"):
+        payload["ops"] = _autopilot_ops(payload)
+    return payload
 
 
 @app.post("/api/twin/reset")
@@ -443,83 +726,17 @@ async def _brain_loop() -> None:
     'updater looks down' banner — that was the bug. Cadence ceiling only; the gates do
     the real throttling."""
     while True:
-        # Social sentiment: ping when a name's Reddit chatter spikes. One cheap call,
-        # gated + fully quarantined (no-op when disabled).
-        try:
-            await asyncio.to_thread(brain.ingest_sentiment)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("sentiment ingest failed: %s", e)
-        # Catalyst radar: surface fresh structured company news on the user's names.
-        # Cheap HTTP scan, gated + cooldowned, fully quarantined (no-op with no key).
-        try:
-            await asyncio.to_thread(brain.ingest_catalysts)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("catalyst ingest failed: %s", e)
-        # Living memory: re-judge triggered theses. Gated, so usually a no-op.
-        try:
-            await asyncio.to_thread(brain.revisit_memory)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("memory revisit failed: %s", e)
-        # Strategy missions: re-run any whose daily cadence lapsed. Gated per mission.
-        try:
-            await asyncio.to_thread(brain.run_due_missions)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("mission run failed: %s", e)
-        # Autonomous deep research: dive names that just hit a high-signal trigger and
-        # drop the report into the ping feed. Heavily gated + cooldowned in the engine.
-        try:
-            await asyncio.to_thread(brain.run_autoresearch)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("autoresearch failed: %s", e)
-        # Structural (portfolio-level) risk read + autonomous concentration ping.
-        try:
-            await asyncio.to_thread(brain.run_structural_risk)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("structural risk failed: %s", e)
-        # Proactive mandate plan: re-read the book against the user's goal on its cadence and
-        # ping a fresh plan — the agent coming to you. Gated to once/period, no-op without a mandate.
-        try:
-            await asyncio.to_thread(brain.run_mandate_review)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("mandate review failed: %s", e)
-        # Drift-triggered plan: fire off-cadence when the book moves materially off its last-planned
-        # shape (a big weight shift, a new/exited position), not just on the weekly clock.
-        try:
-            await asyncio.to_thread(brain.run_mandate_drift)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("mandate drift check failed: %s", e)
-        # Autonomous theme scout: Signal forms its own research agenda from broad-market leadership
-        # and recent events. Autopilot reads these themes as grounded candidate sources.
-        try:
-            await asyncio.to_thread(brain.run_theme_scout)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("theme scout failed: %s", e)
-        # Autonomous strategy discovery: turn active themes into tactic/regime experiments.
-        # Autopilot reads these as grounded strategy candidates before its next decision cycle.
-        try:
-            await asyncio.to_thread(brain.run_strategy_discovery)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("strategy discovery failed: %s", e)
-        # Autopilot (the Twin): its autonomous think (gated to TWIN_DECIDE_HOURS), then fill any
-        # queued orders during market hours, then record an equity point so the race line stays live.
-        try:
-            await asyncio.to_thread(brain.twin_review_windows)
-            await asyncio.to_thread(brain.run_twin_decision)
-            await asyncio.to_thread(brain.twin_execute_pending)
-            await asyncio.to_thread(brain.twin_snapshot)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("twin tick failed: %s", e)
-        # Self-grading sweep: auto-score any recent reasoning trace the inline gate didn't reach
-        # (mainly the autonomous re-judge path). Bounded per cycle + gated; a calm system no-ops.
-        try:
-            await asyncio.to_thread(brain.judge_recent_traces)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("judge sweep failed: %s", e)
-        # Pre-warm the curated findings feed so it's ready when the user opens the tab.
-        try:
-            await asyncio.to_thread(brain.prewarm_feed)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("feed pre-warm failed: %s", e)
+        _BRAIN["cycle_started"] = time.time()
+        _BRAIN["cycle_count"] = int(_BRAIN.get("cycle_count") or 0) + 1
+        errors = []
+        for key, fn, label in _BRAIN_STEPS:
+            try:
+                await _run_brain_step(key, fn)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{key}: {e}")
+                logger.warning("%s failed: %s", label, e)
+        _BRAIN["last_ok"] = time.time()
+        _BRAIN["last_error"] = "; ".join(errors)[:500] if errors else None
         await asyncio.sleep(config.BRAIN_LOOP_SECONDS)
 
 
@@ -560,6 +777,7 @@ async def start_background_refresh() -> None:
         pass
     if config.AUTO_REFRESH_SECONDS > 0:
         _REFRESH["started"] = time.time()
+        _BRAIN["started"] = time.time()
         asyncio.create_task(_refresh_loop())   # fast: live data only
         asyncio.create_task(_brain_loop())     # slow: LLM brain work, decoupled
     if config.AUTO_BRIEFINGS:

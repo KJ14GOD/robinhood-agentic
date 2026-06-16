@@ -581,8 +581,25 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
 
     latest_trace = None
     try:
-        runs = db_repo.recent_agent_runs(limit=1, kind="twin_decision")
-        latest_trace = runs[0] if runs else None
+        inception_at = None
+        try:
+            raw_inception = f.get("inception_at", "")
+            inception_at = datetime.fromisoformat(raw_inception) if raw_inception else None
+            if inception_at and inception_at.tzinfo is None:
+                inception_at = inception_at.replace(tzinfo=timezone.utc)
+        except Exception:  # noqa: BLE001
+            inception_at = None
+        for run in db_repo.recent_agent_runs(limit=20, kind="twin_decision"):
+            created = None
+            try:
+                created = datetime.fromisoformat(run.get("created_at", ""))
+                if created and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+            except Exception:  # noqa: BLE001
+                created = None
+            if not inception_at or (created and created >= inception_at):
+                latest_trace = run
+                break
     except Exception:  # noqa: BLE001
         latest_trace = None
 

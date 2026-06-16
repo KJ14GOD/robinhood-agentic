@@ -60,7 +60,13 @@ def today_line() -> str:
 def client() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=config.require_api_key())
+        # A real per-request deadline. The SDK default is 600s/request, and a multi-request
+        # web_research loop that stalls mid-stream then holds the socket open indefinitely —
+        # which froze the background brain loop (an Anthropic connection idle for 20+ min).
+        # 120s is well above a normal call (~15-40s) but bounds a true stall; one retry rides
+        # out a transient blip without waiting forever.
+        _client = anthropic.Anthropic(
+            api_key=config.require_api_key(), timeout=120.0, max_retries=1)
     return _client
 
 

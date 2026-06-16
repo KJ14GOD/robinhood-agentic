@@ -107,7 +107,7 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "memory" && STATE) { renderMemory(); loadMissions(); loadDeepLog(); }
   if (t.dataset.tab === "shadow" && STATE) loadScore(true);
   if (t.dataset.tab === "evals" && STATE) loadEvals();
-  if (t.dataset.tab === "autopilot" && STATE) loadAutopilot();
+  if (t.dataset.tab === "autopilot") loadAutopilot();
   if (t.dataset.tab === "home" && STATE) { loadMandate(); renderHome(); }
 }));
 
@@ -328,7 +328,57 @@ function renderAutopilot() {
   const c = AUTOPILOT;
   box.innerHTML = (!c || !c.started)
     ? apEmptyHTML()
-    : apHeroHTML(c) + apStatusHTML(c) + apDecisionTraceHTML(c) + apLessonsHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
+    : apHeroHTML(c) + apStatusHTML(c) + apOpsHTML(c) + apTimelineHTML(c) + apDecisionTraceHTML(c) + apLessonsHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
+  scheduleAutopilotRefresh(c);
+}
+
+// Poll while the brain is mid-cycle so the running step ticks live (scend.ai style), then
+// stop once it goes idle so we're not hammering the API on a calm system.
+let AP_TIMER = null;
+function scheduleAutopilotRefresh(c) {
+  clearTimeout(AP_TIMER);
+  const tab = document.querySelector('.tab[data-tab="autopilot"]');
+  const active = tab && tab.classList.contains("active");
+  const tl = (c && c.ops && c.ops.timeline) || [];
+  const running = tl.some((s) => s.status === "running");
+  if (active && running) AP_TIMER = setTimeout(() => loadAutopilot(), 3000);
+}
+
+function apTimelineHTML(c) {
+  const tl = (c.ops && c.ops.timeline) || [];
+  if (!tl.length) return "";
+  const done = tl.filter((s) => s.status === "ok").length;
+  const failed = tl.filter((s) => s.status === "failed").length;
+  const running = tl.find((s) => s.status === "running");
+  const cyc = (c.ops.worker && c.ops.worker.cycle_count) || 1;
+  let head = `cycle ${cyc} · ${done}/${tl.length} done`;
+  if (failed) head += ` · ${failed} failed`;
+  head += running ? ` · running ${running.label.toLowerCase()}` : " · idle";
+  const rows = tl.map(apTimelineRow).join("");
+  return `<details class="ap-tl" open>
+    <summary><span class="ap-tl-h">Brain timeline</span><span class="ap-tl-sub">${esc(head)}</span></summary>
+    <div class="ap-tl-body">${rows}</div>
+  </details>`;
+}
+
+function apTimelineRow(s) {
+  const cls = s.status; // ok | failed | running | pending
+  let meta = "";
+  if (s.status === "running") meta = s.elapsed != null ? `${s.elapsed}s` : "…";
+  else if (s.duration != null && (s.status === "ok" || s.status === "failed")) meta = `${s.duration}s`;
+  const stale = s.from_prev_cycle ? `<span class="ap-tl-prev">prev cycle</span>` : "";
+  const det = [];
+  if (s.result && s.status !== "pending") det.push(`<div><span>result</span>${esc(s.result)}</div>`);
+  if (s.error) det.push(`<div class="bad"><span>error</span>${esc(s.error)}</div>`);
+  if (s.started_at) det.push(`<div><span>started</span>${esc(chartTime(s.started_at))}</div>`);
+  if (s.at && s.status !== "running") det.push(`<div><span>finished</span>${esc(chartTime(s.at))}</div>`);
+  if (s.status === "pending") det.push(`<div><span>status</span>not reached yet this cycle</div>`);
+  const body = `<div class="ap-tl-det">${det.join("") || "<div><span>status</span>waiting</div>"}</div>`;
+  return `<details class="ap-tl-row ${cls}">
+    <summary><span class="ap-tl-dot"></span><span class="ap-tl-label">${esc(s.label)}${stale}</span>
+      <span class="ap-tl-state">${esc(s.status)}</span><span class="ap-tl-meta">${esc(meta)}</span></summary>
+    ${body}
+  </details>`;
 }
 
 function apControlsHTML(c) {
@@ -423,6 +473,46 @@ function apStatusHTML(c) {
       <strong>${pending.count ? `${pending.count} pending` : "None"}</strong>
       <em>${esc(pendingLine)}${gross ? ` · ${money0(gross)} total` : ""} · not applied yet</em>
     </div>
+  </div>`;
+}
+
+function apOpsHTML(c) {
+  const ops = c.ops || {};
+  if (!ops.worker && !ops.decision) return "";
+  const worker = ops.worker || {};
+  const decision = ops.decision || {};
+  const live = ops.live_data || {};
+  const startup = ops.startup || {};
+  const workerCls = worker.status === "stale" || live.stale ? "bad"
+    : worker.status === "starting" || worker.status === "working" ? "warm" : "good";
+  const decisionCls = decision.status === "due now" ? "warm" : decision.status === "waiting for fill" ? "queued" : "good";
+  const step = (ops.steps || [])[0] || {};
+  const next = decision.status === "due now"
+    ? "due now"
+    : decision.next_due_at ? chartTime(decision.next_due_at) : "—";
+  const lastTick = worker.current_step_started_at ? `since ${chartTime(worker.current_step_started_at)}`
+    : worker.last_seen_at ? chartTime(worker.last_seen_at)
+    : worker.last_ok_at ? chartTime(worker.last_ok_at)
+    : worker.cycle_started_at ? `running since ${chartTime(worker.cycle_started_at)}`
+    : "starting";
+  return `<div class="ap-ops">
+    <div class="ap-op ${workerCls}">
+      <span>Worker</span>
+      <strong>${esc(worker.label || worker.status || "starting")}</strong>
+      <em>${esc(lastTick)}</em>
+    </div>
+    <div class="ap-op ${decisionCls}">
+      <span>Next decision</span>
+      <strong>${esc(decision.status || "unknown")}</strong>
+      <em>${esc(next)}</em>
+    </div>
+    <div class="ap-op">
+      <span>Startup</span>
+      <strong>${esc(startup.catchup || "ready")}</strong>
+      <em>${step.key ? `${esc(step.key.replaceAll("_", " "))}: ${esc(step.result || "")}` : "waiting for first tick"}</em>
+    </div>
+    ${(live.stale && live.message) ? `<p class="ap-op-note bad">${esc(live.message)}</p>` : ""}
+    ${ops.history_note ? `<p class="ap-op-note">${esc(ops.history_note)}</p>` : ""}
   </div>`;
 }
 
@@ -671,8 +761,9 @@ function apHoldingsHTML(c) {
 function apHistoryHTML(c) {
   const trades = c.trades || [];
   if (!trades.length) {
+    const note = c.ops?.history_note || "No moves yet — Autopilot is holding the cloned book. Once it queues, fills, or cancels a paper order, the exact time and reasoning will land here.";
     return `<div class="ap-history"><h3>History</h3>
-      <p class="ap-hist-empty">No moves yet — Autopilot is holding the cloned book. Every buy and sell it makes, with the exact time and its reasoning, lands here once its decision engine is switched on.</p></div>`;
+      <p class="ap-hist-empty">${esc(note)}</p></div>`;
   }
   let html = `<div class="ap-history"><h3>History</h3><p class="ap-hist-sub">Every move Autopilot has made, newest first.</p>`;
   let lastDay = null;

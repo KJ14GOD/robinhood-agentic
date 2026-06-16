@@ -17,6 +17,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
 
 from sqlalchemy import select  # noqa: E402
 
+from brain import orchestrator as brain  # noqa: E402
 from brain.db import repository as repo  # noqa: E402
 from brain.db.models import TwinTradeRecord, TwinTradeReviewRecord  # noqa: E402
 from brain.engines import twin  # noqa: E402
@@ -88,6 +89,35 @@ class TwinTests(unittest.TestCase):
         self.assertAlmostEqual(v["value"], 2000 + 10 * 120 + 5 * 200)   # 4,200
         nvda = next(p for p in v["positions"] if p["ticker"] == "NVDA")
         self.assertAlmostEqual(nvda["return_pct"], 20.0)
+
+    def test_compare_ignores_decision_traces_from_prior_clone(self):
+        repo.save_agent_run(query="old", answer="Old decision", kind="twin_decision",
+                            steps=[{"type": "model_draft", "moves": []}])
+        twin.inception(real_pf=self.real)
+        c = twin.compare(real_pf=self.real)
+        self.assertIsNone(c["decision_trace"])
+
+        self._decide_with(TwinDecision(summary="Hold current clone.", moves=[]))
+        c = twin.compare(real_pf=self.real)
+        self.assertEqual(c["decision_trace"]["answer"], "Hold current clone.")
+
+    def test_prior_clone_decision_does_not_block_new_clone_cadence(self):
+        repo.save_agent_run(query="old", answer="Old decision", kind="twin_decision",
+                            steps=[{"type": "model_draft", "moves": []}])
+        twin.inception(real_pf=self.real)
+        old_decide = twin.decide
+        called = {"n": 0}
+
+        def _decide(_profile):
+            called["n"] += 1
+            return TwinDecision(summary="New clone can think.", moves=[])
+
+        twin.decide = _decide
+        try:
+            self.assertTrue(brain.run_twin_decision())
+        finally:
+            twin.decide = old_decide
+        self.assertEqual(called["n"], 1)
 
     def test_buy_clamped_to_cash_and_updates_avg(self):
         twin.inception(real_pf=self.real)         # cash 2,000

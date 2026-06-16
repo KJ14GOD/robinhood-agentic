@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterator
 
 from . import agent, llm, mandate as _mandate, profile_store, research_state, shadow
@@ -711,7 +711,27 @@ def run_twin_decision() -> bool:
     Autopilot event when it actually traded so the move shows in the feed."""
     if not config.TWIN_ENABLED or not twin.is_running():
         return False
-    recent = db_repo.recent_agent_runs(limit=1, kind="twin_decision")
+    fund = twin.state() or {}
+    inception_at = None
+    try:
+        inception_at = datetime.fromisoformat(fund.get("inception_at", ""))
+        if inception_at.tzinfo is None:
+            inception_at = inception_at.replace(tzinfo=timezone.utc)
+    except Exception:  # noqa: BLE001
+        inception_at = None
+    recent = []
+    for run in db_repo.recent_agent_runs(limit=20, kind="twin_decision"):
+        if not run.get("created_at"):
+            continue
+        try:
+            created = datetime.fromisoformat(run["created_at"])
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if not inception_at or created >= inception_at:
+                recent.append(run)
+                break
+        except Exception:  # noqa: BLE001
+            pass
     if recent and recent[0].get("created_at"):
         try:
             last = datetime.fromisoformat(recent[0]["created_at"])
