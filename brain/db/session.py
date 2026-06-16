@@ -45,6 +45,8 @@ _ADDITIVE_COLUMNS = [
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS preflight_note TEXT DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS source_theme_key VARCHAR(80) DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS source_theme_name TEXT DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS source_strategy_key VARCHAR(120) DEFAULT ''",
+    "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS source_strategy_name TEXT DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS market_regime VARCHAR(40) DEFAULT ''",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS plan_step INTEGER DEFAULT 0",
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS depends_on_json TEXT DEFAULT '[]'",
@@ -62,6 +64,8 @@ _ADDITIVE_COLUMNS = [
     "ALTER TABLE twin_trades ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP WITH TIME ZONE",
     "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS source_theme_key VARCHAR(80) DEFAULT ''",
     "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS source_theme_name TEXT DEFAULT ''",
+    "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS source_strategy_key VARCHAR(120) DEFAULT ''",
+    "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS source_strategy_name TEXT DEFAULT ''",
     "ALTER TABLE twin_trade_reviews ADD COLUMN IF NOT EXISTS market_regime VARCHAR(40) DEFAULT ''",
 ]
 

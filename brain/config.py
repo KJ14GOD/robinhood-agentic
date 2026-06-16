@@ -44,6 +44,7 @@ MANDATE_DRIFT_COOLDOWN_HOURS = float(os.environ.get("MANDATE_DRIFT_COOLDOWN_HOUR
 TWIN_ENABLED = os.environ.get("TWIN_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 TWIN_DECIDE_HOURS = float(os.environ.get("TWIN_DECIDE_HOURS", "4"))
 THEME_SCOUT_HOURS = float(os.environ.get("THEME_SCOUT_HOURS", "6"))
+STRATEGY_DISCOVERY_HOURS = float(os.environ.get("STRATEGY_DISCOVERY_HOURS", "6"))
 TWIN_PREFLIGHT_BUY_MAX_UP_PCT = float(os.environ.get("TWIN_PREFLIGHT_BUY_MAX_UP_PCT", "4"))
 TWIN_PREFLIGHT_SELL_MAX_DOWN_PCT = float(os.environ.get("TWIN_PREFLIGHT_SELL_MAX_DOWN_PCT", "8"))
 AUTO_BRIEFINGS = os.environ.get("AUTO_BRIEFINGS", "true").lower() in {"1", "true", "yes", "on"}

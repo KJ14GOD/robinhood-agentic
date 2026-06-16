@@ -15,7 +15,7 @@ from .data.news import clear_news_cache
 from .data.prices import clear_caches, get_chart, get_portfolio_chart, get_quote
 from .data import robinhood_charts
 from .db import repository as db_repo
-from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, judge, memory, missions, monitor, theme_scout, twin
+from .engines import analyst, autoresearch, briefing, discovery, evaluation, findings, judge, memory, missions, monitor, strategy_discovery, theme_scout, twin
 from .engines import deep_research as _deep_research
 from .engines import structural_risk as _structural_risk
 from . import config
@@ -735,6 +735,11 @@ def run_twin_decision() -> bool:
 def run_theme_scout(force: bool = False) -> list[dict]:
     """Autonomous market theme discovery. This is Signal's own research agenda, not a user mission."""
     return theme_scout.run_due(force=force)
+
+
+def run_strategy_discovery(force: bool = False) -> list[dict]:
+    """Autonomous strategy experiment discovery. Turns themes into tactic/regime hypotheses."""
+    return strategy_discovery.run_due(force=force)
 
 
 def twin_decide_now() -> dict:

@@ -12,6 +12,7 @@ from ..models import (
 )
 from .models import (
     AgentRunRecord,
+    AutonomousStrategyRecord,
     AutonomousThemeRecord,
     BriefingRecord,
     ChatMessageRecord,
@@ -1224,6 +1225,121 @@ def autonomous_theme_feedback() -> dict[str, dict]:
         return {}
 
 
+# --- autonomous strategy experiments ---------------------------------------- #
+def upsert_autonomous_strategy(key: str, title: str, tactic: str, horizon: str,
+                               theme_key: str, theme_name: str, market_regime: str,
+                               hypothesis: str, entry_rule: str, exit_rule: str,
+                               sizing_note: str, score: float, confidence: float,
+                               evidence: list[str], candidates: list[dict],
+                               status: str = "exploring",
+                               source: str = "strategy_discovery") -> None:
+    """Persist an autonomous strategy hypothesis. Strategies are not user missions; they are
+    experiments Autopilot can test and later score through paper-trade review windows."""
+    if not _ensure_ready() or not key:
+        return
+    now = datetime.now(timezone.utc)
+    try:
+        with db_session() as session:
+            row = session.get(AutonomousStrategyRecord, key)
+            if not row:
+                row = AutonomousStrategyRecord(key=key, discovered_at=now)
+                session.add(row)
+            row.title = title
+            row.tactic = tactic[:60]
+            row.horizon = horizon[:80]
+            row.theme_key = theme_key[:80]
+            row.theme_name = theme_name
+            row.market_regime = market_regime[:40]
+            row.hypothesis = hypothesis[:4000]
+            row.entry_rule = entry_rule[:4000]
+            row.exit_rule = exit_rule[:4000]
+            row.sizing_note = sizing_note[:4000]
+            row.score = float(score or 0.0)
+            row.confidence = float(confidence or 0.0)
+            row.evidence_json = json.dumps(evidence or [])[:20000]
+            row.candidates_json = json.dumps(candidates or [])[:60000]
+            row.status = status if status in {"exploring", "active", "cooling", "retired"} else "exploring"
+            row.source = source
+            row.updated_at = now
+            row.last_seen_at = now
+    except Exception:
+        return
+
+
+def autonomous_strategies(status: str | None = None, limit: int = 20,
+                          min_score: float = 0.0) -> list[dict]:
+    if not _ensure_ready():
+        return []
+    try:
+        with db_session() as session:
+            stmt = select(AutonomousStrategyRecord).order_by(
+                desc(AutonomousStrategyRecord.score), desc(AutonomousStrategyRecord.updated_at))
+            if status:
+                stmt = stmt.where(AutonomousStrategyRecord.status == status)
+            if min_score:
+                stmt = stmt.where(AutonomousStrategyRecord.score >= min_score)
+            rows = session.execute(stmt.limit(limit)).scalars().all()
+            return [{
+                "key": r.key,
+                "title": r.title,
+                "status": r.status,
+                "score": r.score,
+                "confidence": r.confidence,
+                "tactic": r.tactic,
+                "horizon": r.horizon,
+                "theme_key": r.theme_key,
+                "theme_name": r.theme_name,
+                "market_regime": r.market_regime,
+                "hypothesis": r.hypothesis,
+                "entry_rule": r.entry_rule,
+                "exit_rule": r.exit_rule,
+                "sizing_note": r.sizing_note,
+                "evidence": json.loads(r.evidence_json or "[]"),
+                "candidates": json.loads(r.candidates_json or "[]"),
+                "source": r.source,
+                "discovered_at": r.discovered_at.isoformat() if r.discovered_at else "",
+                "updated_at": r.updated_at.isoformat() if r.updated_at else "",
+                "last_seen_at": r.last_seen_at.isoformat() if r.last_seen_at else "",
+            } for r in rows]
+    except Exception:
+        return []
+
+
+def autonomous_strategy_feedback() -> dict[str, dict]:
+    """Reviewed Autopilot outcomes grouped by autonomous strategy attribution."""
+    if not _ensure_ready():
+        return {}
+    try:
+        with db_session() as session:
+            rows = session.execute(
+                select(TwinTradeReviewRecord)
+                .where(TwinTradeReviewRecord.status == "done")
+                .where(TwinTradeReviewRecord.judged.is_(True))
+                .where(TwinTradeReviewRecord.source_strategy_key != "")
+            ).scalars().all()
+        groups: dict[str, list[TwinTradeReviewRecord]] = {}
+        names: dict[str, str] = {}
+        for r in rows:
+            groups.setdefault(r.source_strategy_key, []).append(r)
+            names[r.source_strategy_key] = r.source_strategy_name or r.source_strategy_key
+        out: dict[str, dict] = {}
+        for key, rs in groups.items():
+            n = len(rs)
+            out[key] = {
+                "key": key,
+                "name": names.get(key, key),
+                "tested_count": n,
+                "avg_return": sum(x.return_pct for x in rs) / n if n else 0.0,
+                "avg_spy_alpha": sum(x.spy_alpha_pct for x in rs) / n if n else 0.0,
+                "avg_sector_alpha": sum(x.sector_alpha_pct for x in rs) / n if n else 0.0,
+                "win_rate": sum(1 for x in rs if x.verdict == "worked") / n * 100.0 if n else 0.0,
+                "break_rate": sum(1 for x in rs if x.thesis_state == "broken") / n * 100.0 if n else 0.0,
+            }
+        return out
+    except Exception:
+        return {}
+
+
 # --- the Twin (autonomous paper fund) --------------------------------------- #
 def load_twin_fund() -> dict | None:
     if not _ensure_ready():
@@ -1370,7 +1486,8 @@ def add_twin_trade(ticker: str, action: str, shares: float, reasoning: str = "",
                    tactic: str = "", horizon: str = "", thesis: str = "",
                    exit_rule: str = "", review_after_days: int = 7,
                    critic_note: str = "", source_theme_key: str = "",
-                   source_theme_name: str = "", plan_step: int = 0,
+                   source_theme_name: str = "", source_strategy_key: str = "",
+                   source_strategy_name: str = "", plan_step: int = 0,
                    depends_on: list[str] | None = None,
                    decision_price: float = 0.0, market_regime: str = "") -> int:
     """Queue a trade. A decision-cycle order is sized in dollars (`usd`, stashed in `value` until
@@ -1385,6 +1502,8 @@ def add_twin_trade(ticker: str, action: str, shares: float, reasoning: str = "",
                                 critic_note=critic_note[:4000],
                                 tactic=tactic[:60], source_theme_key=source_theme_key[:80],
                                 source_theme_name=source_theme_name[:4000],
+                                source_strategy_key=source_strategy_key[:120],
+                                source_strategy_name=source_strategy_name[:4000],
                                 market_regime=market_regime[:40],
                                 plan_step=int(plan_step or 0),
                                 depends_on_json=json.dumps(depends_on or [])[:4000],
@@ -1411,6 +1530,8 @@ def pending_twin_trades() -> list[dict]:
                      "critic_note": r.critic_note, "preflight_note": r.preflight_note,
                      "tactic": r.tactic, "source_theme_key": r.source_theme_key,
                      "source_theme_name": r.source_theme_name,
+                     "source_strategy_key": r.source_strategy_key,
+                     "source_strategy_name": r.source_strategy_name,
                      "market_regime": r.market_regime,
                      "plan_step": r.plan_step, "depends_on": json.loads(r.depends_on_json or "[]"),
                      "horizon": r.horizon, "thesis": r.thesis,
@@ -1492,6 +1613,8 @@ def recent_twin_trades(limit: int = 60) -> list[dict]:
                      "preflight_note": r.preflight_note,
                      "tactic": r.tactic, "source_theme_key": r.source_theme_key,
                      "source_theme_name": r.source_theme_name,
+                     "source_strategy_key": r.source_strategy_key,
+                     "source_strategy_name": r.source_strategy_name,
                      "market_regime": r.market_regime,
                      "plan_step": r.plan_step, "depends_on": json.loads(r.depends_on_json or "[]"),
                      "horizon": r.horizon,
@@ -1537,6 +1660,8 @@ def due_twin_review_trades(limit: int = 50) -> list[dict]:
                             "conviction": r.conviction, "tactic": r.tactic,
                             "source_theme_key": r.source_theme_key,
                             "source_theme_name": r.source_theme_name,
+                            "source_strategy_key": r.source_strategy_key,
+                            "source_strategy_name": r.source_strategy_name,
                             "market_regime": r.market_regime, "horizon": r.horizon,
                             "review_after_days": r.review_after_days,
                             "bench_entry_price": r.bench_entry_price,
@@ -1568,7 +1693,8 @@ def save_twin_review(trade_id: int, last_price: float, bench_last_price: float,
 def schedule_twin_reviews(trade_id: int, ticker: str, action: str, tactic: str, horizon: str,
                           entry_price: float, bench_entry: float, sector_symbol: str,
                           sector_entry: float, windows: list, source_theme_key: str = "",
-                          source_theme_name: str = "", market_regime: str = "") -> None:
+                          source_theme_name: str = "", source_strategy_key: str = "",
+                          source_strategy_name: str = "", market_regime: str = "") -> None:
     """Queue the horizon-appropriate evaluation windows for a just-filled trade.
     `windows` is a list of (window, days, judged)."""
     if not _ensure_ready() or not windows:
@@ -1580,6 +1706,8 @@ def schedule_twin_reviews(trade_id: int, ticker: str, action: str, tactic: str, 
                 session.add(TwinTradeReviewRecord(
                     trade_id=trade_id, ticker=ticker.upper(), action=action, tactic=tactic or "",
                     source_theme_key=source_theme_key or "", source_theme_name=source_theme_name or "",
+                    source_strategy_key=source_strategy_key or "",
+                    source_strategy_name=source_strategy_name or "",
                     market_regime=market_regime or "",
                     horizon=horizon or "", window=window, judged=bool(judged),
                     due_at=now + timedelta(days=int(days)), status="pending",
@@ -1604,6 +1732,8 @@ def due_twin_reviews(limit: int = 40) -> list[dict]:
             return [{"id": r.id, "trade_id": r.trade_id, "ticker": r.ticker, "action": r.action,
                      "tactic": r.tactic, "source_theme_key": r.source_theme_key,
                      "source_theme_name": r.source_theme_name,
+                     "source_strategy_key": r.source_strategy_key,
+                     "source_strategy_name": r.source_strategy_name,
                      "market_regime": r.market_regime,
                      "horizon": r.horizon, "window": r.window, "judged": r.judged,
                      "entry_price": r.entry_price, "bench_entry": r.bench_entry,
@@ -1657,6 +1787,8 @@ def twin_reviews_for_trades(trade_ids: list[int]) -> dict:
                 "thesis_state": r.thesis_state, "verdict": r.verdict, "note": r.note,
                 "sector_symbol": r.sector_symbol, "source_theme_key": r.source_theme_key,
                 "source_theme_name": r.source_theme_name,
+                "source_strategy_key": r.source_strategy_key,
+                "source_strategy_name": r.source_strategy_name,
                 "market_regime": r.market_regime,
                 "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else ""})
         return out
@@ -1744,6 +1876,7 @@ def twin_contextual_bandit() -> dict:
             tactic = r.tactic or r.action or "trade"
             sector = r.sector_symbol or "market"
             theme = r.source_theme_key or ""
+            strategy = r.source_strategy_key or ""
             regime = r.market_regime or "unknown"
             add("tactic", tactic, tactic, r)
             add("sector", sector, sector, r)
@@ -1755,6 +1888,10 @@ def twin_contextual_bandit() -> dict:
                 add("theme", theme, r.source_theme_name or theme, r)
                 add("tactic_theme", f"{tactic}|{theme}", f"{tactic} in {r.source_theme_name or theme}", r)
                 add("theme_regime", f"{theme}|{regime}", f"{r.source_theme_name or theme} during {regime}", r)
+            if strategy:
+                add("strategy", strategy, r.source_strategy_name or strategy, r)
+                add("strategy_regime", f"{strategy}|{regime}", f"{r.source_strategy_name or strategy} during {regime}", r)
+                add("tactic_strategy", f"{tactic}|{strategy}", f"{tactic} in {r.source_strategy_name or strategy}", r)
 
         arms = []
         for full_key, g in groups.items():
@@ -1802,7 +1939,7 @@ def twin_contextual_bandit() -> dict:
 def twin_lesson_book() -> dict:
     """Aggregated Autopilot lessons from the authoritative review-window ledger."""
     if not _ensure_ready():
-        return {"tactics": [], "sectors": [], "themes": [], "recent": []}
+        return {"tactics": [], "sectors": [], "themes": [], "strategies": [], "recent": []}
     try:
         with db_session() as session:
             rows = session.execute(
@@ -1862,6 +1999,8 @@ def twin_lesson_book() -> dict:
         recent = [{
             "ticker": r.ticker, "action": r.action, "tactic": r.tactic, "horizon": r.horizon,
             "window": r.window, "judged": r.judged, "sector_symbol": r.sector_symbol,
+            "source_strategy_key": r.source_strategy_key,
+            "source_strategy_name": r.source_strategy_name,
             "return_pct": r.return_pct, "spy_alpha_pct": r.spy_alpha_pct,
             "sector_alpha_pct": r.sector_alpha_pct, "drawdown_pct": r.drawdown_pct,
             "thesis_state": r.thesis_state, "verdict": r.verdict, "note": r.note,
@@ -1884,9 +2023,26 @@ def twin_lesson_book() -> dict:
                     stance = "mixed"
             themes.append({**th, **fb, "stance": stance})
 
-        return {"tactics": tactics, "sectors": sectors, "themes": themes, "recent": recent}
+        strategy_feedback = autonomous_strategy_feedback()
+        strategies = []
+        for st in autonomous_strategies(limit=8, min_score=40.0):
+            fb = strategy_feedback.get(st["key"], {})
+            stance = "exploring"
+            if fb.get("tested_count", 0) >= 2:
+                if fb.get("break_rate", 0) >= 34:
+                    stance = "retire"
+                elif fb.get("avg_sector_alpha", 0) > 1 and fb.get("win_rate", 0) >= 50:
+                    stance = "scale"
+                elif fb.get("avg_sector_alpha", 0) < -1:
+                    stance = "cooling"
+                else:
+                    stance = "mixed"
+            strategies.append({**st, **fb, "stance": stance})
+
+        return {"tactics": tactics, "sectors": sectors, "themes": themes,
+                "strategies": strategies, "recent": recent}
     except Exception:
-        return {"tactics": [], "sectors": [], "themes": [], "recent": []}
+        return {"tactics": [], "sectors": [], "themes": [], "strategies": [], "recent": []}
 
 
 def latest_twin_review(ticker: str) -> dict | None:

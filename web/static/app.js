@@ -8,7 +8,7 @@ const money = (n) => "$" + (n || 0).toLocaleString(undefined, { maximumFractionD
 const money0 = (n) => "$" + (n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 const pct = (n) => (n == null ? "—" : (n >= 0 ? "+" : "") + n.toFixed(2) + "%");
 const cls = (n) => (n == null ? "" : n >= 0 ? "pos" : "neg");
-const esc = (s) => (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const localTime = (s) => {
   if (!s) return "";
   const d = new Date(s);
@@ -328,7 +328,7 @@ function renderAutopilot() {
   const c = AUTOPILOT;
   box.innerHTML = (!c || !c.started)
     ? apEmptyHTML()
-    : apHeroHTML(c) + apStatusHTML(c) + apLessonsHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
+    : apHeroHTML(c) + apStatusHTML(c) + apDecisionTraceHTML(c) + apLessonsHTML(c) + apControlsHTML(c) + apChartHTML(c) + apHoldingsHTML(c) + apHistoryHTML(c);
 }
 
 function apControlsHTML(c) {
@@ -426,6 +426,77 @@ function apStatusHTML(c) {
   </div>`;
 }
 
+function apMoveTraceRow(m, opts = {}) {
+  const action = (m.action || "").toUpperCase();
+  const tk = m.ticker || "";
+  const usd = +m.usd || +m.value || 0;
+  const tactic = m.tactic ? `<span>${esc((m.tactic || "").replaceAll("_", " "))}</span>` : "";
+  const step = m.plan_step ? `<em>step ${esc(m.plan_step)}</em>` : "";
+  const deps = (m.depends_on || []).length ? `<span>depends on ${esc(m.depends_on.join(", "))}</span>` : "";
+  const why = m.reasoning || m.thesis || m.reason || "";
+  return `<div class="ap-trace-move ${opts.rejected ? "rejected" : ""}">
+    <div><b>${esc(action)}</b><strong>${esc(tk)}</strong><small>${money0(usd)}</small></div>
+    <div class="ap-trace-tags">${step}${tactic}${deps}</div>
+    ${why ? `<p>${esc(why)}</p>` : ""}
+  </div>`;
+}
+
+function apDecisionTraceHTML(c) {
+  const run = c.decision_trace;
+  if (!run) return "";
+  const steps = run.steps || [];
+  const legacy = steps.find((s) => s.type === "twin_decision") || {};
+  const ctx = steps.find((s) => s.type === "decision_context") || {};
+  const draft = steps.find((s) => s.type === "model_draft") || {};
+  const gov = steps.find((s) => s.type === "governor_review") || {};
+  const draftMoves = draft.moves || legacy.original_moves || [];
+  const finalMoves = gov.ordered_plan || legacy.moves || [];
+  const rejected = gov.rejected || legacy.rejected || [];
+  const notes = gov.critic_notes || legacy.critic_notes || {};
+  const noteRows = Object.values(notes).filter(Boolean).map((n) => `<li>${esc(n)}</li>`).join("");
+  const rejectedRows = rejected.map((r) => apMoveTraceRow(r, { rejected: true })).join("");
+  const finalRows = finalMoves.map((m) => apMoveTraceRow(m)).join("");
+  const draftRows = draftMoves.map((m) => apMoveTraceRow(m)).join("");
+  const sample = (ctx.candidate_sample || []).slice(0, 8)
+    .map((x) => `<span>${esc(x.ticker || "")}</span>`).join("");
+  const book = ctx.book || {};
+  const bookValue = Number.isFinite(+book.value) ? money0(+book.value) : "—";
+  const bookCash = Number.isFinite(+book.cash) ? money0(+book.cash) : "—";
+  const summary = gov.final_summary || legacy.summary || run.answer || "Latest Autopilot decision cycle";
+  return `<details class="ap-trace">
+    <summary>
+      <div>
+        <strong>Latest decision trace</strong>
+        <span>${esc(summary)}</span>
+      </div>
+      <em>${esc(chartTime(run.created_at))}</em>
+    </summary>
+    <div class="ap-trace-body">
+      <div class="ap-trace-context">
+        <div><span>Book</span><strong>${bookValue}</strong><em>cash ${bookCash}</em></div>
+        <div><span>Candidates</span><strong>${esc(ctx.candidate_count ?? "—")}</strong><em>${esc(ctx.market_regime || "regime unknown")}</em></div>
+        <div><span>Model</span><strong>${esc(run.model || "LLM")}</strong><em>structured decision artifact</em></div>
+      </div>
+      ${sample ? `<div class="ap-trace-sample">${sample}</div>` : ""}
+      <div class="ap-trace-grid">
+        <section>
+          <h4>Model draft</h4>
+          ${draftRows || `<p class="muted">No draft moves captured.</p>`}
+        </section>
+        <section>
+          <h4>Governor</h4>
+          ${noteRows ? `<ul class="ap-trace-notes">${noteRows}</ul>` : `<p class="muted">No critic edits.</p>`}
+          ${rejectedRows ? `<div class="ap-trace-rejected">${rejectedRows}</div>` : ""}
+        </section>
+      </div>
+      <section class="ap-trace-final">
+        <h4>Final ordered plan</h4>
+        ${finalRows || `<p class="muted">Held this cycle — no orders queued.</p>`}
+      </section>
+    </div>
+  </details>`;
+}
+
 function lessonStatus(row) {
   const n = row.count || 0;
   if (!n) return "learning";
@@ -440,6 +511,7 @@ function apLessonsHTML(c) {
   const tactics = l.tactics || [];
   const sectors = l.sectors || [];
   const themes = l.themes || [];
+  const strategies = l.strategies || [];
   const recent = l.recent || [];
   const rules = l.rules || [];
   const bandit = l.bandit || {};
@@ -471,6 +543,14 @@ function apLessonsHTML(c) {
     return `<div class="ap-theme-scout">
       <div><strong>${esc(t.name || t.key || "theme")}</strong><span>${esc(names || "building roster")} · ${tested}</span></div>
       <b>${Math.round(t.score || 0)}</b>
+    </div>`;
+  }).join("");
+  const strategyRows = strategies.slice(0, 4).map((s) => {
+    const names = (s.candidates || []).slice(0, 4).map((c) => c.ticker).filter(Boolean).join(", ");
+    const tested = s.tested_count ? `${s.tested_count} tested · ${pct(s.avg_sector_alpha || 0)} alpha · ${esc(s.stance || "testing")}` : "not tested yet";
+    return `<div class="ap-strategy-exp">
+      <div><strong>${esc(s.title || s.key || "strategy")}</strong><span>${esc(s.tactic || "tactic")} · ${esc(names || "building roster")} · ${tested}</span></div>
+      <b>${Math.round(s.score || 0)}</b>
     </div>`;
   }).join("");
   const ruleRows = rules.slice(0, 4).map((r) => `<li>${esc(r)}</li>`).join("");
@@ -509,13 +589,19 @@ function apLessonsHTML(c) {
           ${banditRows ? `<div class="ap-policy-list">${banditRows}</div>` : ""}
         </div>
         <div class="ap-lesson-card">
+          <h4>Strategy experiments</h4>
+          ${strategyRows || `<p class="muted">Strategy Discovery has not promoted an experiment yet.</p>`}
+        </div>
+      </div>
+      <div class="ap-lessons-grid second">
+        <div class="ap-lesson-card">
           <h4>Discovered themes</h4>
           ${themeRows || `<p class="muted">Theme Scout has not found a strong autonomous theme yet.</p>`}
         </div>
-      </div>
-      <div class="ap-lesson-card ap-review-card">
+        <div class="ap-lesson-card ap-review-card">
         <h4>Latest reviews</h4>
         ${recentRows || `<p class="muted">No completed reviews yet.</p>`}
+        </div>
       </div>`}
   </section>`;
 }

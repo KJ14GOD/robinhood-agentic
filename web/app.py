@@ -494,6 +494,12 @@ async def _brain_loop() -> None:
             await asyncio.to_thread(brain.run_theme_scout)
         except Exception as e:  # noqa: BLE001
             logger.warning("theme scout failed: %s", e)
+        # Autonomous strategy discovery: turn active themes into tactic/regime experiments.
+        # Autopilot reads these as grounded strategy candidates before its next decision cycle.
+        try:
+            await asyncio.to_thread(brain.run_strategy_discovery)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("strategy discovery failed: %s", e)
         # Autopilot (the Twin): its autonomous think (gated to TWIN_DECIDE_HOURS), then fill any
         # queued orders during market hours, then record an equity point so the race line stays live.
         try:

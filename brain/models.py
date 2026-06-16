@@ -577,6 +577,8 @@ class TwinMove(BaseModel):
     exit_rule: str = Field(default="", description="The concrete thing that would make you sell it.")
     source_theme_key: str = Field(default="", description="Set by the critic when this move came from Signal's autonomous theme scout.")
     source_theme_name: str = Field(default="", description="Human-readable autonomous theme name, set by the critic.")
+    source_strategy_key: str = Field(default="", description="Set by the critic when this move came from Signal's autonomous strategy discovery.")
+    source_strategy_name: str = Field(default="", description="Human-readable autonomous strategy title, set by the critic.")
     plan_step: int = Field(default=0, ge=0, le=50, description="Execution order inside this decision plan. The critic normalizes it before queueing.")
     depends_on: list[str] = Field(default_factory=list, description="Earlier tickers/actions this leg depends on for funding or risk reduction.")
     review_after_days: int = Field(

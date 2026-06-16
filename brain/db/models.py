@@ -354,11 +354,42 @@ class AutonomousThemeRecord(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class AutonomousStrategyRecord(Base):
+    """A strategy hypothesis Signal generated on its own.
+
+    Themes answer "where is there activity?" Strategy experiments answer "what tactic should
+    Autopilot test there, under what conditions, and how will it know it was wrong?"""
+
+    __tablename__ = "autonomous_strategies"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="exploring", index=True)
+    score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    tactic: Mapped[str] = mapped_column(String(60), default="", index=True)
+    horizon: Mapped[str] = mapped_column(String(80), default="")
+    theme_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    theme_name: Mapped[str] = mapped_column(Text, default="")
+    market_regime: Mapped[str] = mapped_column(String(40), default="", index=True)
+    hypothesis: Mapped[str] = mapped_column(Text, default="")
+    entry_rule: Mapped[str] = mapped_column(Text, default="")
+    exit_rule: Mapped[str] = mapped_column(Text, default="")
+    sizing_note: Mapped[str] = mapped_column(Text, default="")
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    candidates_json: Mapped[str] = mapped_column(Text, default="[]")
+    source: Mapped[str] = mapped_column(String(80), default="strategy_discovery")
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 Index("ix_position_snapshots_ticker_snapshot", PositionSnapshot.ticker, PositionSnapshot.snapshot_id)
 Index("ix_research_events_ticker_created", ResearchEventRecord.ticker, ResearchEventRecord.created_at)
 Index("ix_shadow_trades_source_closed", ShadowTradeRecord.source, ShadowTradeRecord.closed)
 Index("ix_mission_candidates_mission_ticker", MissionCandidateRecord.mission_id, MissionCandidateRecord.ticker)
 Index("ix_autonomous_themes_status_score", AutonomousThemeRecord.status, AutonomousThemeRecord.score)
+Index("ix_autonomous_strategies_status_score", AutonomousStrategyRecord.status, AutonomousStrategyRecord.score)
 
 
 # --------------------------------------------------------------------------- #
@@ -419,6 +450,8 @@ class TwinTradeRecord(Base):
     tactic: Mapped[str] = mapped_column(String(60), default="", index=True)
     source_theme_key: Mapped[str] = mapped_column(String(80), default="", index=True)
     source_theme_name: Mapped[str] = mapped_column(Text, default="")
+    source_strategy_key: Mapped[str] = mapped_column(String(120), default="", index=True)
+    source_strategy_name: Mapped[str] = mapped_column(Text, default="")
     market_regime: Mapped[str] = mapped_column(String(40), default="", index=True)
     plan_step: Mapped[int] = mapped_column(Integer, default=0, index=True)
     depends_on_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -468,6 +501,8 @@ class TwinTradeReviewRecord(Base):
     tactic: Mapped[str] = mapped_column(String(60), default="", index=True)
     source_theme_key: Mapped[str] = mapped_column(String(80), default="", index=True)
     source_theme_name: Mapped[str] = mapped_column(Text, default="")
+    source_strategy_key: Mapped[str] = mapped_column(String(120), default="", index=True)
+    source_strategy_name: Mapped[str] = mapped_column(Text, default="")
     market_regime: Mapped[str] = mapped_column(String(40), default="", index=True)
     horizon: Mapped[str] = mapped_column(String(80), default="")
     window: Mapped[str] = mapped_column(String(8), default="", index=True)   # 1d | 1w | 1m | 3m | 6m

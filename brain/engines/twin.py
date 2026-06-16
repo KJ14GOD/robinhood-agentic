@@ -384,6 +384,8 @@ def _schedule_fill_reviews(fill: dict, bench_price: float) -> None:
             windows=_windows_for(fill.get("horizon"), fill.get("tactic")),
             source_theme_key=fill.get("source_theme_key") or "",
             source_theme_name=fill.get("source_theme_name") or "",
+            source_strategy_key=fill.get("source_strategy_key") or "",
+            source_strategy_name=fill.get("source_strategy_name") or "",
             market_regime=fill.get("market_regime") or "")
     except Exception:  # noqa: BLE001
         return
@@ -577,6 +579,13 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
     def ret(now: float) -> float:
         return ((now - v0) / v0 * 100.0) if v0 > 0 else 0.0
 
+    latest_trace = None
+    try:
+        runs = db_repo.recent_agent_runs(limit=1, kind="twin_decision")
+        latest_trace = runs[0] if runs else None
+    except Exception:  # noqa: BLE001
+        latest_trace = None
+
     return {
         "started": True,
         "inception_at": f.get("inception_at", ""),
@@ -604,6 +613,7 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
                                                        since_iso=f.get("inception_at")),
         "trades": db_repo.recent_twin_trades(200),
         "lessons": lessons(),
+        "decision_trace": latest_trace,
     }
 
 
@@ -642,6 +652,36 @@ def _autonomous_theme_sources() -> dict[str, dict]:
     return sources
 
 
+def _autonomous_strategy_sources() -> dict[str, dict]:
+    sources: dict[str, dict] = {}
+    try:
+        for st in db_repo.autonomous_strategies(limit=10, min_score=45.0):
+            if st.get("status") not in {"active", "exploring"}:
+                continue
+            for c in (st.get("candidates") or [])[:6]:
+                tk = (c.get("ticker") or "").upper()
+                if not tk:
+                    continue
+                prior = sources.get(tk)
+                cur = {
+                    "key": st.get("key") or "",
+                    "title": st.get("title") or "",
+                    "score": st.get("score") or 0,
+                    "tactic": st.get("tactic") or "",
+                    "horizon": st.get("horizon") or "",
+                    "theme_key": st.get("theme_key") or "",
+                    "theme_name": st.get("theme_name") or "",
+                    "entry_rule": st.get("entry_rule") or "",
+                    "exit_rule": st.get("exit_rule") or "",
+                    "reason": c.get("strategy_reason") or c.get("reason") or "",
+                }
+                if not prior or cur["score"] > prior.get("score", 0):
+                    sources[tk] = cur
+    except Exception:  # noqa: BLE001
+        pass
+    return sources
+
+
 def _candidate_universe(held: set[str]) -> dict:
     """Grounded names Autopilot may buy beyond its book.
 
@@ -667,6 +707,12 @@ def _candidate_universe(held: set[str]) -> dict:
                 uni.setdefault(c.ticker.upper(), f"mission {m.title} / {c.label}: {c.reason[:90]}")
     except Exception:  # noqa: BLE001
         pass
+    for tk, src in _autonomous_strategy_sources().items():
+        uni.setdefault(
+            tk,
+            f"strategy experiment {src.get('title')} [{src.get('key')}] tactic {src.get('tactic')} "
+            f"score {src.get('score', 0):.0f}: {(src.get('reason') or src.get('entry_rule') or '')[:130]}",
+        )
     for tk, src in _autonomous_theme_sources().items():
         uni.setdefault(
             tk,
@@ -828,7 +874,14 @@ def _bandit_match(m, regime: str, sector_symbol: str, by_key: dict | None = None
             return None
     tactic = m.tactic or m.action or "trade"
     theme = m.source_theme_key or ""
+    strategy = m.source_strategy_key or ""
     keys = []
+    if strategy:
+        keys.extend([
+            f"strategy_regime:{strategy}|{regime}",
+            f"tactic_strategy:{tactic}|{strategy}",
+            f"strategy:{strategy}",
+        ])
     if theme:
         keys.extend([
             f"theme_regime:{theme}|{regime}",
@@ -873,6 +926,7 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
     held = {p["ticker"].upper(): p for p in v.get("positions", [])}
     allowed = set(universe) | set(held)
     theme_sources = _autonomous_theme_sources()
+    strategy_sources = _autonomous_strategy_sources()
     policy = _policy_stats()
     regime = _market_regime(refresh=False)
     try:
@@ -907,6 +961,19 @@ def _critic(decision: TwinDecision, v: dict, profile, universe: dict) -> tuple[T
             src = theme_sources[m.ticker]
             m.source_theme_key = src.get("key") or ""
             m.source_theme_name = src.get("name") or ""
+        if m.action in ("buy", "add") and m.ticker in strategy_sources:
+            src = strategy_sources[m.ticker]
+            m.source_strategy_key = src.get("key") or ""
+            m.source_strategy_name = src.get("title") or ""
+            if src.get("theme_key"):
+                m.source_theme_key = src.get("theme_key") or m.source_theme_key
+                m.source_theme_name = src.get("theme_name") or m.source_theme_name
+            if src.get("tactic") in _VALID_TACTICS and m.tactic == "theme_exposure":
+                prior = notes.get(_move_key(m, idx), "")
+                m.tactic = src.get("tactic")
+                notes[_move_key(m, idx)] = (prior + " " if prior else "") + (
+                    f"Critic aligned tactic to autonomous strategy {m.source_strategy_key}."
+                )
         sector_symbol = (_sector_symbol_for(m.ticker, refresh=False)
                          if bandit_by_key and m.action in ("buy", "add") else "market")
         if m.action in ("sell", "trim") and m.ticker not in held:
@@ -1032,7 +1099,7 @@ YOUR BOOK:
 {_book_block(v)}
 
 CANDIDATES you may buy (grounded from memory, user missions, Signal's autonomous theme scout, and
-broad market screening — choose from this list only; never invented tickers):
+autonomous strategy discovery, plus broad market screening — choose from this list only; never invented tickers):
 {cand}
 
 QUANTITATIVE SIGNALS:
@@ -1074,6 +1141,8 @@ def _apply(decision: TwinDecision, critic_notes: dict[str, str] | None = None,
                                    review_after_days=m.review_after_days, critic_note=note,
                                    source_theme_key=m.source_theme_key,
                                    source_theme_name=m.source_theme_name,
+                                   source_strategy_key=m.source_strategy_key,
+                                   source_strategy_name=m.source_strategy_name,
                                    plan_step=m.plan_step, depends_on=m.depends_on,
                                    decision_price=quote_map.get(m.ticker, 0.0),
                                    market_regime=regime)
@@ -1089,6 +1158,8 @@ def _apply(decision: TwinDecision, critic_notes: dict[str, str] | None = None,
                                critic_note=critic_notes.get(_move_key(m, idx), ""),
                                source_theme_key=m.source_theme_key,
                                source_theme_name=m.source_theme_name,
+                               source_strategy_key=m.source_strategy_key,
+                               source_strategy_name=m.source_strategy_name,
                                plan_step=m.plan_step, depends_on=m.depends_on,
                                decision_price=quote_map.get(m.ticker, 0.0),
                                market_regime=regime)
@@ -1110,11 +1181,15 @@ def decide(profile) -> TwinDecision | None:
     held = {p["ticker"] for p in v["positions"]}
     universe = _candidate_universe(held)
     names = (list(held) + [t for t in universe if t not in held])[:50]
+    regime = _market_regime(refresh=False)
+    signal_block = _signals_block(names)
+    event_block = _events_block(names)
+    policy_block = _policy_memory()
     from .. import mandate as _mandate
     try:
         raw = llm.parse(
             _decide_prompt(v, _mandate.mandate_prompt(), profile, universe,
-                           _signals_block(names), _events_block(names), _policy_memory()),
+                           signal_block, event_block, policy_block),
             TwinDecision, max_tokens=2400)
     except Exception:  # noqa: BLE001
         return None
@@ -1123,12 +1198,24 @@ def decide(profile) -> TwinDecision | None:
     try:
         db_repo.save_agent_run(
             query="Autopilot decision cycle", answer=decision.summary, kind="twin_decision",
-            steps=[{"type": "twin_decision", "summary": decision.summary,
-                    "original_moves": [m.model_dump() for m in raw.moves],
-                    "moves": [m.model_dump() for m in decision.moves],
-                    "critic_notes": critic_notes,
-                    "rejected": [{"ticker": m.ticker, "action": m.action, "usd": m.usd, "reason": note}
-                                 for m, note in rejected]}],
+            steps=[
+                {"type": "decision_context",
+                 "book": {"value": v.get("value", 0.0), "cash": v.get("cash", 0.0),
+                          "positions": [{"ticker": p.get("ticker"), "value": p.get("market_value", 0.0),
+                                         "return_pct": p.get("return_pct", 0.0)}
+                                        for p in v.get("positions", [])]},
+                 "candidate_count": len(universe),
+                 "candidate_sample": [{"ticker": t, "source": ctx} for t, ctx in list(universe.items())[:12]],
+                 "market_regime": regime,
+                 "policy_memory": policy_block[:4000]},
+                {"type": "model_draft", "summary": raw.summary,
+                 "moves": [m.model_dump() for m in raw.moves]},
+                {"type": "governor_review", "final_summary": decision.summary,
+                 "critic_notes": critic_notes,
+                 "rejected": [{"ticker": m.ticker, "action": m.action, "usd": m.usd, "reason": note}
+                              for m, note in rejected],
+                 "ordered_plan": [m.model_dump() for m in decision.moves]},
+            ],
             tools_used="", model=llm.MODEL)
     except Exception:  # noqa: BLE001
         pass
