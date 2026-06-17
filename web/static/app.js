@@ -532,13 +532,15 @@ function apMoveTraceRow(m, opts = {}) {
 }
 
 function apDecisionTraceHTML(c) {
-  const run = c.decision_trace;
+  const failedAttempt = !c.decision_trace && c.decision_attempt_trace;
+  const run = c.decision_trace || c.decision_attempt_trace;
   if (!run) return "";
   const steps = run.steps || [];
   const legacy = steps.find((s) => s.type === "twin_decision") || {};
   const ctx = steps.find((s) => s.type === "decision_context") || {};
   const draft = steps.find((s) => s.type === "model_draft") || {};
   const gov = steps.find((s) => s.type === "governor_review") || {};
+  const err = steps.find((s) => s.type === "decision_error") || {};
   const draftMoves = draft.moves || legacy.original_moves || [];
   const finalMoves = gov.ordered_plan || legacy.moves || [];
   const rejected = gov.rejected || legacy.rejected || [];
@@ -556,7 +558,7 @@ function apDecisionTraceHTML(c) {
   return `<details class="ap-trace">
     <summary>
       <div>
-        <strong>Latest decision trace</strong>
+        <strong>${failedAttempt ? "Latest decision attempt" : "Latest decision trace"}</strong>
         <span>${esc(summary)}</span>
       </div>
       <em>${esc(chartTime(run.created_at))}</em>
@@ -565,8 +567,9 @@ function apDecisionTraceHTML(c) {
       <div class="ap-trace-context">
         <div><span>Book</span><strong>${bookValue}</strong><em>cash ${bookCash}</em></div>
         <div><span>Candidates</span><strong>${esc(ctx.candidate_count ?? "—")}</strong><em>${esc(ctx.market_regime || "regime unknown")}</em></div>
-        <div><span>Model</span><strong>${esc(run.model || "LLM")}</strong><em>structured decision artifact</em></div>
+        <div><span>Model</span><strong>${esc(run.model || "LLM")}</strong><em>${failedAttempt ? "attempt failed before plan" : "structured decision artifact"}</em></div>
       </div>
+      ${err.error ? `<p class="ap-trace-error"><strong>${esc(err.stage || "decision error")}</strong> ${esc(err.error)}</p>` : ""}
       ${sample ? `<div class="ap-trace-sample">${sample}</div>` : ""}
       <div class="ap-trace-grid">
         <section>

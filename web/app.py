@@ -262,7 +262,9 @@ def _autopilot_ops(payload: dict) -> dict:
     it tells the UI whether THIS running uvicorn process is actually ticking."""
     now = datetime.now(timezone.utc)
     trace = payload.get("decision_trace") or {}
+    attempt_trace = payload.get("decision_attempt_trace") or {}
     last_decision = _parse_iso(trace.get("created_at"))
+    last_attempt = _parse_iso(attempt_trace.get("created_at"))
     next_due = (last_decision + timedelta(hours=config.TWIN_DECIDE_HOURS)) if last_decision else now
     pending = payload.get("pending") or {}
     pending_count = int(pending.get("count") or 0)
@@ -286,6 +288,8 @@ def _autopilot_ops(payload: dict) -> dict:
             history_note = "Orders are queued but not filled yet, so History will show pending moves once the queue is written and filled/canceled states update."
         elif last_decision:
             history_note = "No moves yet because the latest Autopilot decision held the cloned book or queued nothing. After-hours only blocks fills, not History rows."
+        elif last_attempt:
+            history_note = "No moves yet because the latest Autopilot decision attempt failed before producing a valid order plan. Open the decision trace above for the exact failure."
         else:
             history_note = "No moves yet because Autopilot has not made a recorded trade decision since this twin was started."
     else:

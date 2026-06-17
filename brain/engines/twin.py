@@ -10,6 +10,9 @@ The decision-making — what to trade and why — is a separate brain that queue
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from .. import config, llm, research_state
 from ..data import market_clock
@@ -17,7 +20,7 @@ from ..data.prices import (ScreenRow, get_chart, get_quote, get_quotes, get_sign
                            get_signals_many, screen_universe, sector_etf)
 from ..data.universe import screening_universe
 from ..db import repository as db_repo
-from ..models import TwinDecision, TwinThesisReview
+from ..models import TwinDecision, TwinMove, TwinThesisReview
 from ..portfolio import get_portfolio
 
 _VALID_TACTICS = {
@@ -33,6 +36,35 @@ _VALID_TACTICS = {
     "liquidity_cleanup",
 }
 _MIN_ORDER_USD = 1.0
+
+
+class _TwinMoveDraft(BaseModel):
+    """Small LLM-facing move schema. The rich internal TwinMove schema carries DB/source
+    bookkeeping that makes Anthropic reject the structured-output schema as too complex."""
+    ticker: str
+    action: Literal["buy", "add", "trim", "sell", "hold"]
+    usd: float = 0.0
+    reasoning: str
+    conviction: int = Field(default=5, ge=1, le=10)
+    tactic: str = ""
+    thesis: str = ""
+    horizon: str = ""
+    exit_rule: str = ""
+    review_after_days: int = Field(default=7, ge=1, le=365)
+
+
+class _TwinDecisionDraft(BaseModel):
+    summary: str
+    moves: list[_TwinMoveDraft] = Field(default_factory=list)
+
+
+def _to_twin_decision(draft: _TwinDecisionDraft | TwinDecision) -> TwinDecision:
+    if isinstance(draft, TwinDecision):
+        return draft
+    return TwinDecision(
+        summary=draft.summary,
+        moves=[TwinMove(**m.model_dump()) for m in draft.moves],
+    )
 _HYGIENE_TACTICS = {"rebalance", "risk_reduction", "liquidity_cleanup", "defensive_rotation"}
 _REVIEW_WINDOW_DAYS = {"1d": 1, "1w": 7, "1m": 30, "3m": 90, "6m": 180}
 _WINDOW_SPAN = {"1d": "5d", "1w": "1m", "1m": "3m", "3m": "6m", "6m": "1y"}
@@ -239,8 +271,16 @@ def _preflight_pending(pending: list[dict], qmap: dict[str, float], cash: float)
         db_repo.cancel_twin_trades(list(cancel_notes), reason=cancel_notes)
 
     live = [t for t in pending if int(t.get("id") or 0) not in cancel_notes]
-    projected_cash = cash + sum(_expected_sell_proceeds(t, qmap.get(t["ticker"], 0.0))
-                                for t in live if t.get("action") in ("sell", "trim"))
+    projected_cash = cash
+    for t in live:
+        if t.get("action") not in ("sell", "trim"):
+            continue
+        expected = _expected_sell_proceeds(t, qmap.get(t["ticker"], 0.0))
+        # This is only a sizing precheck. The fill loop below still clamps sells to
+        # shares actually held and buys to cash actually available, so this fallback
+        # cannot manufacture capital. It prevents a transient position/quote lookup
+        # miss from starving a buy that is explicitly funded by queued sell legs.
+        projected_cash += expected if expected > 0 else float(t.get("value") or 0.0)
     buys = [t for t in live if t.get("action") in ("buy", "add")]
     total_buy = sum(float(t.get("value") or 0.0) for t in buys)
     if buys and total_buy > projected_cash:
@@ -579,8 +619,7 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
     def ret(now: float) -> float:
         return ((now - v0) / v0 * 100.0) if v0 > 0 else 0.0
 
-    latest_trace = None
-    try:
+    def _latest_run_since(kind: str) -> dict | None:
         inception_at = None
         try:
             raw_inception = f.get("inception_at", "")
@@ -589,7 +628,7 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
                 inception_at = inception_at.replace(tzinfo=timezone.utc)
         except Exception:  # noqa: BLE001
             inception_at = None
-        for run in db_repo.recent_agent_runs(limit=20, kind="twin_decision"):
+        for run in db_repo.recent_agent_runs(limit=20, kind=kind):
             created = None
             try:
                 created = datetime.fromisoformat(run.get("created_at", ""))
@@ -598,10 +637,17 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
             except Exception:  # noqa: BLE001
                 created = None
             if not inception_at or (created and created >= inception_at):
-                latest_trace = run
-                break
+                return run
+        return None
+
+    try:
+        latest_trace = _latest_run_since("twin_decision")
     except Exception:  # noqa: BLE001
         latest_trace = None
+    try:
+        latest_attempt_trace = _latest_run_since("twin_decision_attempt")
+    except Exception:  # noqa: BLE001
+        latest_attempt_trace = None
 
     return {
         "started": True,
@@ -631,6 +677,7 @@ def compare(real_pf=None, refresh: bool = False) -> dict:
         "trades": db_repo.recent_twin_trades(200),
         "lessons": lessons(),
         "decision_trace": latest_trace,
+        "decision_attempt_trace": latest_attempt_trace,
     }
 
 
@@ -1204,12 +1251,35 @@ def decide(profile) -> TwinDecision | None:
     policy_block = _policy_memory()
     from .. import mandate as _mandate
     try:
-        raw = llm.parse(
+        raw_draft = llm.parse(
             _decide_prompt(v, _mandate.mandate_prompt(), profile, universe,
                            signal_block, event_block, policy_block),
-            TwinDecision, max_tokens=2400)
-    except Exception:  # noqa: BLE001
-        return None
+            _TwinDecisionDraft, max_tokens=2400)
+        raw = _to_twin_decision(raw_draft)
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}".strip()
+        try:
+            db_repo.save_agent_run(
+                query="Autopilot decision cycle",
+                answer=f"Decision attempt failed before a valid structured plan was returned: {err}",
+                kind="twin_decision_attempt",
+                steps=[
+                    {"type": "decision_context",
+                     "book": {"value": v.get("value", 0.0), "cash": v.get("cash", 0.0),
+                              "positions": [{"ticker": p.get("ticker"), "value": p.get("market_value", 0.0),
+                                             "return_pct": p.get("return_pct", 0.0)}
+                                            for p in v.get("positions", [])]},
+                     "candidate_count": len(universe),
+                     "candidate_sample": [{"ticker": t, "source": ctx}
+                                          for t, ctx in list(universe.items())[:12]],
+                     "market_regime": regime,
+                     "policy_memory": policy_block[:4000]},
+                    {"type": "decision_error", "stage": "model_parse", "error": err},
+                ],
+                tools_used="", model=llm.MODEL)
+        except Exception:  # noqa: BLE001
+            pass
+        raise RuntimeError(f"Autopilot decision failed before valid model output: {err}") from e
     decision, critic_notes, rejected = _critic(raw, v, profile, universe)
     _apply(decision, critic_notes=critic_notes, rejected=rejected)
     try:

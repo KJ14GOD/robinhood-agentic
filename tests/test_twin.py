@@ -422,6 +422,26 @@ class TwinTests(unittest.TestCase):
         self.assertEqual(trade["status"], "filled")
         self.assertIn("Preflight resized", trade["preflight_note"])
 
+    def test_preflight_funding_fallback_does_not_starve_dependent_buy(self):
+        twin.inception(real_pf=_pf(5.0, {"NVDA": (10, 100.0)}))
+        QUOTES.update({"NVDA": 100.0, "GOOGL": 100.0})
+        repo.add_twin_trade("NVDA", "trim", 0.0, usd=100.0, reasoning="funding trim",
+                            tactic="rebalance", plan_step=1, decision_price=100.0)
+        repo.add_twin_trade("GOOGL", "buy", 0.0, usd=100.0, reasoning="funded buy",
+                            tactic="pullback_in_uptrend", plan_step=2, depends_on=["TRIM NVDA"],
+                            decision_price=100.0)
+        old_expected = twin._expected_sell_proceeds
+        twin._expected_sell_proceeds = lambda *_args, **_kwargs: 0.0
+        try:
+            fills = twin.execute_pending(force=True)
+        finally:
+            twin._expected_sell_proceeds = old_expected
+
+        self.assertEqual([f["ticker"] for f in fills], ["NVDA", "GOOGL"])
+        googl = next(t for t in repo.recent_twin_trades(5) if t["ticker"] == "GOOGL")
+        self.assertAlmostEqual(googl["value"], 100.0)
+        self.assertNotIn("Preflight resized", googl["preflight_note"])
+
     def test_decide_holds_when_no_moves(self):
         twin.inception(real_pf=self.real)
         self._decide_with(TwinDecision(summary="Nothing worth a trade.", moves=[]))
