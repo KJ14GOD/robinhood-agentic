@@ -7,6 +7,8 @@ If you'd rather not, set PORTFOLIO_SOURCE=manual.
 """
 from __future__ import annotations
 
+import threading
+
 import robin_stocks.robinhood as rh
 from robin_stocks.robinhood.helper import request_get
 from robin_stocks.robinhood.urls import historicals_url
@@ -16,23 +18,33 @@ from ..data.prices import clean_ticker, get_quotes
 from ..models import Holding, Portfolio
 
 _logged_in = False
+# Serialize login. The app calls _login() from many threads at once (chart requests,
+# brain/refresh loops). Without this lock they all race past the `_logged_in` check while
+# none has finished, and each starts a full Robinhood device-approval challenge — a
+# thundering herd that hammers the push endpoint and trips a 429. The lock lets exactly
+# one thread log in while the rest wait and reuse the session.
+_login_lock = threading.Lock()
 
 
 def _login() -> None:
     global _logged_in
     if _logged_in:
         return
-    if not (config.RH_USERNAME and config.RH_PASSWORD):
-        raise RuntimeError(
-            "PORTFOLIO_SOURCE=robinhood but RH_USERNAME/RH_PASSWORD are not set in .env"
-        )
-    kwargs = {"username": config.RH_USERNAME, "password": config.RH_PASSWORD,
-              "store_session": True}
-    if config.RH_MFA:
-        import pyotp  # optional dep; only needed for automated TOTP
-        kwargs["mfa_code"] = pyotp.TOTP(config.RH_MFA).now()
-    rh.login(**kwargs)
-    _logged_in = True
+    with _login_lock:
+        # Re-check inside the lock: a thread that waited here may have logged in already.
+        if _logged_in:
+            return
+        if not (config.RH_USERNAME and config.RH_PASSWORD):
+            raise RuntimeError(
+                "PORTFOLIO_SOURCE=robinhood but RH_USERNAME/RH_PASSWORD are not set in .env"
+            )
+        kwargs = {"username": config.RH_USERNAME, "password": config.RH_PASSWORD,
+                  "store_session": True}
+        if config.RH_MFA:
+            import pyotp  # optional dep; only needed for automated TOTP
+            kwargs["mfa_code"] = pyotp.TOTP(config.RH_MFA).now()
+        rh.login(**kwargs)
+        _logged_in = True
 
 
 def _as_float(value) -> float:
